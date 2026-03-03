@@ -104,7 +104,7 @@ const DEMO_NEWS = [
   { id: 1, source: "GDELT (Map)", time: "Now", publishedAt: new Date().toISOString(), title: "The Strike Map is already pulling live data from GDELT — no key required", summary: "GDELT monitors global news in real-time and geo-tags conflict events automatically.", url: "https://gdeltproject.org", severity: "low", region: "Middle East" },
 ];
 
-// Real fallback headlines from 2 March 2026 when NewsAPI/GDELT fail. Run `node scripts/update-fallback-news.js` to refresh from GDELT.
+// Real fallback headlines from 2–3 March 2026 when NewsAPI/GDELT fail. Run `node scripts/update-fallback-news.js` to refresh from GDELT.
 const FALLBACK_NEWS = [
   { id: 0, source: "Reuters", time: "2 Mar", publishedAt: "2026-03-02T14:00:00Z", title: "Iran's retaliation for US-Israeli strikes rattles Gulf neighbors", summary: "Over 400 ballistic missiles and nearly 1,000 drones launched across region. Saudi and UAE energy infrastructure hit.", url: "https://reuters.com", severity: "high", region: "Iran" },
   { id: 1, source: "AP", time: "2 Mar", publishedAt: "2026-03-02T12:30:00Z", title: "US and Israel conduct coordinated strikes on Iran ballistic missile sites", summary: "Targets included naval headquarters, warships, nuclear enrichment facilities. Regional escalation continues.", url: "https://apnews.com", severity: "high", region: "US" },
@@ -113,9 +113,9 @@ const FALLBACK_NEWS = [
   { id: 4, source: "Reuters", time: "2 Mar", publishedAt: "2026-03-02T08:15:00Z", title: "Three US service members killed in Iranian missile strikes on bases", summary: "US military bases in region targeted. Pentagon confirms casualties.", url: "https://reuters.com", severity: "high", region: "US" },
   { id: 5, source: "Foreign Policy", time: "2 Mar", publishedAt: "2026-03-02T07:00:00Z", title: "Iran, Israel, and US racing clock as air defense stockpiles deplete", summary: "Rapid victory sought before interceptor exhaustion. Trump indicates strikes to continue through week.", url: "https://foreignpolicy.com", severity: "high", region: "Israel" },
   { id: 6, source: "Reuters", time: "2 Mar", publishedAt: "2026-03-02T06:30:00Z", title: "Iran establishes leadership council to select new supreme leader", summary: "Three-member council to choose successor within one to two days. No designated heir.", url: "https://reuters.com", severity: "medium", region: "Iran" },
-  { id: 7, source: "Reuters", time: "2 Mar", publishedAt: "2026-03-02T05:00:00Z", title: "Saudi Arabia and UAE assess damage to energy infrastructure", summary: "Gulf states hit by Iranian retaliation. Decades of military preparation tested.", url: "https://reuters.com", severity: "high", region: "Saudi Arabia" },
-  { id: 8, source: "Reuters", time: "2 Mar", publishedAt: "2026-03-02T04:00:00Z", title: "Kuwait and Bahrain on alert; no direct strikes reported", summary: "Gulf states monitor situation. Civil defense readiness enhanced.", url: "https://reuters.com", severity: "medium", region: "Kuwait" },
-  { id: 9, source: "Reuters", time: "2 Mar", publishedAt: "2026-03-02T03:00:00Z", title: "Iraq urges restraint; Baghdad caught between US presence and Iranian influence", summary: "Regional de-escalation called for. Iraq monitors developments on both borders.", url: "https://reuters.com", severity: "medium", region: "Iraq" },
+  { id: 7, source: "Reuters", time: "3 Mar", publishedAt: "2026-03-03T05:00:00Z", title: "Saudi Arabia and UAE assess damage to energy infrastructure", summary: "Gulf states hit by Iranian retaliation. Decades of military preparation tested.", url: "https://reuters.com", severity: "high", region: "Saudi Arabia" },
+  { id: 8, source: "Reuters", time: "3 Mar", publishedAt: "2026-03-03T04:00:00Z", title: "Kuwait and Bahrain on alert; no direct strikes reported", summary: "Gulf states monitor situation. Civil defense readiness enhanced.", url: "https://reuters.com", severity: "medium", region: "Kuwait" },
+  { id: 9, source: "Reuters", time: "3 Mar", publishedAt: "2026-03-03T03:00:00Z", title: "Iraq urges restraint; Baghdad caught between US presence and Iranian influence", summary: "Regional de-escalation called for. Iraq monitors developments on both borders.", url: "https://reuters.com", severity: "medium", region: "Iraq" },
 ];
 
 const DEMO_MAP_EVENTS = [
@@ -1217,7 +1217,7 @@ export default function SafeDXB() {
     const icons = {
       dashboard: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>,
       news: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1"/></svg>,
-      map: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/><path d="M2 8l7-3 5 2 7-3"/><path d="M2 16l7-3 5 2 7-3"/></svg>,
+      map: <svg width="16" height="16" viewBox="0 0 512 512" fill="currentColor"><path d="M352 256C352 309 309 352 256 352C202.1 352 160 309 160 256C160 202.1 202.1 160 256 160C309 160 352 202.1 352 256zM256 192C220.7 192 192 220.7 192 256C192 291.3 220.7 320 256 320C291.3 320 320 291.3 320 256C320 220.7 291.3 192 256 192zM256 0C264.8 0 272 7.164 272 16V64.66C365.3 72.35 439.6 146.7 447.3 240H496C504.8 240 512 247.2 512 256C512 264.8 504.8 272 496 272H447.3C439.6 365.3 365.3 439.6 272 447.3V496C272 504.8 264.8 512 256 512C247.2 512 240 504.8 240 496V447.3C146.7 439.6 72.35 365.3 64.66 272H16C7.164 272 0 264.8 0 256C0 247.2 7.164 240 16 240H64.66C72.35 146.7 146.7 72.35 240 64.66V16C240 7.164 247.2 0 256 0V0zM96 256C96 344.4 167.6 416 256 416C344.4 416 416 344.4 416 256C416 167.6 344.4 96 256 96C167.6 96 96 167.6 96 256z"/></svg>,
       guidelines: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
       hotlines: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>,
     };
@@ -1236,12 +1236,12 @@ export default function SafeDXB() {
     const num    = { red:"text-red-600", green:"text-green-600", blue:"text-blue-600", amber:"text-amber-600", slate:"text-slate-700" };
     const btn    = { red:"bg-red-50 text-red-700 hover:bg-red-100", green:"bg-green-50 text-green-700 hover:bg-green-100", blue:"bg-blue-50 text-blue-700 hover:bg-blue-100", amber:"bg-amber-50 text-amber-700 hover:bg-amber-100", slate:"bg-slate-50 text-slate-700 hover:bg-slate-100" };
     return (
-      <div className={cn("rounded-xl border bg-white p-5 flex flex-col items-center text-center transition-all hover:shadow-md gap-1", border[h.color])}>
+      <div className={cn("rounded-xl border bg-white p-5 flex flex-col items-center text-center transition-all hover:shadow-md gap-1 min-h-[180px]", border[h.color])}>
         <span className="text-3xl mb-1">{h.emoji}</span>
         <p className="font-heading font-bold text-slate-900 text-sm uppercase tracking-wide">{h.name}</p>
         <p className={cn("font-black text-2xl leading-none my-1", num[h.color])}>{h.number}</p>
         <p className="text-xs text-slate-500 mb-2">{h.desc}</p>
-        <a href={`tel:${h.tel}`} className={cn("inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-semibold transition-colors", btn[h.color])}>
+        <a href={`tel:${h.tel}`} className={cn("mt-auto inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-semibold transition-colors", btn[h.color])}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81a19.79 19.79 0 01-3.07-8.68A2 2 0 012.18 1h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 8.14a16 16 0 006 6l1.41-1.41a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
           Call Now
         </a>
@@ -1276,9 +1276,9 @@ export default function SafeDXB() {
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
             Dubai {time} GST+4
           </div>
-          <a href="tel:999" className="inline-flex items-center gap-2 rounded-lg bg-red-600 hover:bg-red-700 text-white px-4 py-2 text-sm font-semibold transition-colors shadow-sm cursor-pointer">
+          <a href="tel:998" className="inline-flex items-center gap-2 rounded-lg bg-red-600 hover:bg-red-700 text-white px-4 py-2 text-sm font-semibold transition-colors shadow-sm cursor-pointer">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81a19.79 19.79 0 01-3.07-8.68A2 2 0 012.18 1h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 8.14a16 16 0 006 6l1.41-1.41a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
-            Emergency 999
+            Emergency 998
           </a>
         </div>
         <div className="ticker-wrap bg-slate-900 text-white border-t border-slate-700 py-1.5">
