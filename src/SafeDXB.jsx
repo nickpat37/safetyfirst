@@ -1223,17 +1223,15 @@ export default function SafeDXB() {
             Emergency 999
           </a>
         </div>
-        {news.length > 0 && (
-          <div className="ticker-wrap bg-slate-900 text-white border-t border-slate-700 py-1.5">
-            <div className="ticker-inner gap-0">
-              {[...news.slice(0,10),...news.slice(0,10)].map((n,i) => (
-                <span key={i} className="text-xs text-white font-medium shrink-0 mr-14">
-                  {n.severity==="high"?"🔴":n.severity==="medium"?"🟡":"🟢"} {n.title}
-                </span>
-              ))}
-            </div>
+        <div className="ticker-wrap bg-slate-900 text-white border-t border-slate-700 py-1.5">
+          <div className="ticker-inner gap-0">
+            {[...(news.length > 0 ? news : DEMO_NEWS).slice(0,10),...(news.length > 0 ? news : DEMO_NEWS).slice(0,10)].map((n,i) => (
+              <span key={i} className="text-xs text-white font-medium shrink-0 mr-14">
+                {n.severity==="high"?"🔴":n.severity==="medium"?"🟡":"🟢"} {n.title}
+              </span>
+            ))}
           </div>
-        )}
+        </div>
         <div className="bg-white border-b border-slate-200 z-40">
           <div className="max-w-screen-xl mx-auto pl-6 pr-0 py-2 relative">
             <div className="overflow-x-auto">
