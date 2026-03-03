@@ -411,7 +411,9 @@ const useLiveNews = () => {
 
   const loadCachedFallback = async () => {
     try {
-      const res = await fetch("/fallback-news.json");
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 3000);
+      const res = await fetch("/fallback-news.json", { signal: ctrl.signal }).finally(() => clearTimeout(t));
       if (!res.ok) return FALLBACK_NEWS;
       const arr = await res.json();
       if (Array.isArray(arr) && arr.length > 0) {
@@ -440,9 +442,29 @@ const useLiveNews = () => {
       }));
   };
 
+  const fetchWithTimeout = (url, opts = {}, ms = 6000) => {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), ms);
+    return fetch(url, { ...opts, signal: ctrl.signal }).finally(() => clearTimeout(t));
+  };
+
   const fetchNews = async () => {
-    setLoading(true);
     setError(null);
+    const isDeployed = typeof window !== "undefined" && !/^localhost$|^127\./.test(window.location?.hostname || "");
+    if (isDeployed) {
+      setNews(FALLBACK_NEWS);
+      setHasRealNews(true);
+      setLastUpdated(new Date());
+      setLoading(false);
+      loadCachedFallback().then((cached) => {
+        if (Array.isArray(cached) && cached.length > 0) {
+          setNews(cached);
+          setLastUpdated(new Date());
+        }
+      }).catch(() => {});
+      return;
+    }
+    setLoading(true);
     try {
       if (!CONFIG.NEWS_API_KEY) throw new Error("NO_KEY");
       const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Dubai" });
