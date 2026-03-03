@@ -1211,8 +1211,7 @@ export default function SafeDXB() {
       <header className="sticky top-0 z-50 bg-white border-b border-slate-200 shadow-sm">
         <div className="max-w-screen-xl mx-auto px-6 h-14 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-slate-900 flex items-center justify-center"><span className="text-white font-black text-sm">S</span></div>
-            <span className="font-heading font-black text-slate-900 text-lg tracking-tight">Safe<span className="text-red-600">DXB</span></span>
+            <span className="font-heading font-black text-slate-900 text-lg tracking-tight">Stay<span className="text-red-600">Safe</span></span>
             <Badge variant="destructive" className="hidden sm:flex gap-1 animate-pulse"><span className="w-1.5 h-1.5 rounded-full bg-red-500"/>LIVE</Badge>
           </div>
           <div className="hidden md:flex items-center gap-1.5 text-xs text-slate-500 font-mono">
