@@ -493,6 +493,7 @@ const useLiveNews = () => {
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [hasRealNews, setHasRealNews] = useState(false);
+  const [isPlaceholder, setIsPlaceholder] = useState(false);
 
   const loadCachedFallback = async () => {
     try {
@@ -540,6 +541,7 @@ const useLiveNews = () => {
     if (isDeployed) {
       setNews(FALLBACK_NEWS);
       setHasRealNews(true);
+      setIsPlaceholder(true);
       setLastUpdated(new Date());
       setLoading(false);
       try {
@@ -548,6 +550,7 @@ const useLiveNews = () => {
           const deduped = dedupeNews(gdelt);
           const diversified = diversifyNewsByRegion(deduped).map((a, i) => ({ ...a, id: i }));
           setNews(diversified);
+          setIsPlaceholder(false);
           setLastUpdated(new Date());
           return;
         }
@@ -555,6 +558,7 @@ const useLiveNews = () => {
       loadCachedFallback().then((cached) => {
         if (Array.isArray(cached) && cached.length > 0) {
           setNews(cached.map((a, i) => ({ ...a, id: i })));
+          setIsPlaceholder(false);
           setLastUpdated(new Date());
         }
       }).catch(() => {});
@@ -635,7 +639,7 @@ const useLiveNews = () => {
   useEffect(() => { fetchNews(); }, []);
   useEffect(() => { const id = setInterval(fetchNews, 5 * 60 * 1000); return () => clearInterval(id); }, []);
 
-  return { news, loading, error, lastUpdated, hasRealNews, refetch: fetchNews };
+  return { news, loading, error, lastUpdated, hasRealNews, isPlaceholder, refetch: fetchNews };
 };
 
 const useGdeltMap = () => {
@@ -699,12 +703,14 @@ const useClaudeSummary = (news) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const sigRef = useRef(null);
+  const runIdRef = useRef(0);
 
   const generate = async (articles) => {
     if (!articles?.length) return;
     const sig = articles.slice(0, 10).map(a => a.title).join("|").slice(0, 300);
     if (sig === sigRef.current) return;
     sigRef.current = sig;
+    const thisRunId = ++runIdRef.current;
 
     setError(null);
     // Show fallback bullets immediately so user sees content fast; AI replaces when ready
@@ -782,15 +788,16 @@ Summarize the war, conflict, and security situation in the Middle East region as
 
       if (!res.ok) throw new Error(`Claude ${res.status}`);
       const data = await res.json();
+      if (thisRunId !== runIdRef.current) return;
       const raw = data.content?.[0]?.text || "[]";
       const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
       const withNews = parsed.map(b => ({ ...b, news: toUse[Math.max(0, (b.articleIndex || 1) - 1)] }));
       setBullets(dedupeBullets(withNews));
     } catch (err) {
-      setError(err.message);
+      if (thisRunId === runIdRef.current) setError(err.message);
       // Bullets already set from instant fallback above
     } finally {
-      setLoading(false);
+      if (thisRunId === runIdRef.current) setLoading(false);
     }
   };
 
@@ -811,6 +818,7 @@ const useAIStatus = (news, userCity, userCountry) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const sigRef = useRef(null);
+  const runIdRef = useRef(0);
 
   useEffect(() => {
     if (!news?.length || !CONFIG.ANTHROPIC_API_KEY) {
@@ -820,6 +828,7 @@ const useAIStatus = (news, userCity, userCountry) => {
     const sig = `${userCity}|${userCountry}|${news.slice(0, 5).map(n => n.title).join("|")}`.slice(0, 200);
     if (sig === sigRef.current) return;
     sigRef.current = sig;
+    const thisRunId = ++runIdRef.current;
 
     const run = async () => {
       setLoading(true);
@@ -858,6 +867,7 @@ Return ONLY valid JSON. No markdown.`,
         });
         if (!res.ok) throw new Error(`Claude ${res.status}`);
         const data = await res.json();
+        if (thisRunId !== runIdRef.current) return;
         const raw = data.content?.[0]?.text || "{}";
         const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
         const level = Math.min(4, Math.max(1, parseInt(parsed.level, 10) || 1));
@@ -873,10 +883,12 @@ Return ONLY valid JSON. No markdown.`,
           ...theme,
         });
       } catch (err) {
-        setError(err.message);
-        setStatus(computeStatus(news, userCity || "", userCountry || ""));
+        if (thisRunId === runIdRef.current) {
+          setError(err.message);
+          setStatus(computeStatus(news, userCity || "", userCountry || ""));
+        }
       } finally {
-        setLoading(false);
+        if (thisRunId === runIdRef.current) setLoading(false);
       }
     };
 
@@ -957,7 +969,7 @@ const filterBullets = (bullets, filter) => {
   return bullets;
 };
 
-const AISummaryPanel = ({ bullets, loading, error, lastUpdated, onRegenerate, bulletFilter, onClearFilter, hasNews = false, hasRealNews = false }) => {
+const AISummaryPanel = ({ bullets, loading, error, lastUpdated, onRegenerate, bulletFilter, onClearFilter, hasNews = false, hasRealNews = false, isPlaceholder = false }) => {
   const filteredBullets = filterBullets(bullets, bulletFilter);
   const filterBadge = bulletFilter === "missile" ? { label: "🎯 Missile/strike", style: "bg-red-100 text-red-700 border-red-200" } : bulletFilter === "high" ? { label: "🔴 High-severity", style: "bg-orange-100 text-orange-700 border-orange-200" } : bulletFilter === "medium" ? { label: "🟡 Developing", style: "bg-amber-100 text-amber-700 border-amber-200" } : null;
   return (
@@ -984,6 +996,7 @@ const AISummaryPanel = ({ bullets, loading, error, lastUpdated, onRegenerate, bu
           )}
         </div>
         <div className="ml-auto flex items-center gap-2">
+          {isPlaceholder && <span className="text-[10px] text-amber-600 flex items-center gap-1"><Spinner size={8}/>Updating to live…</span>}
           {lastUpdated && <span className="text-[10px] text-blue-500">{formatTimeAgo(lastUpdated.toISOString())}</span>}
           <button onClick={onRegenerate} disabled={loading}
             className="inline-flex items-center gap-1 text-[10px] text-blue-600 hover:text-blue-800 border border-blue-200 rounded px-2 py-0.5 bg-white/60 transition-colors disabled:opacity-40 cursor-pointer">
@@ -1014,7 +1027,7 @@ const AISummaryPanel = ({ bullets, loading, error, lastUpdated, onRegenerate, bu
                   {b.text}
                   {b.news?.url && b.news?.source && (
                     <> · <a href={b.news.url} target="_blank" rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium border border-slate-200 text-blue-600 bg-blue-100 hover:bg-slate-50 hover:border-slate-300 transition-colors"
+                      className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] h-[18px] font-medium border border-slate-200 text-blue-600 bg-blue-100 hover:bg-slate-50 hover:border-slate-300 transition-colors"
                       onClick={e=>e.stopPropagation()}>{b.news.source}<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg></a></>
                   )}
                 </span>
@@ -1399,7 +1412,7 @@ export default function SafeDXB() {
   const [liveNewsFilter, setLiveNewsFilter] = useState(null);
   const liveNewsRef = useRef(null);
 
-  const { news, loading: nLoading, error: nError, lastUpdated, hasRealNews, refetch } = useLiveNews();
+  const { news, loading: nLoading, error: nError, lastUpdated, hasRealNews, isPlaceholder, refetch } = useLiveNews();
   const { events: mapEvents, loading: mLoading } = useGdeltMap();
   const { bullets, loading: aiLoading, error: aiError, regenerate } = useClaudeSummary(news);
   const userLoc = useUserLocation();
@@ -1616,7 +1629,7 @@ export default function SafeDXB() {
             })()}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div ref={liveNewsRef} className="lg:col-span-2 space-y-5 min-w-0">
-                <AISummaryPanel bullets={bullets} loading={aiLoading} error={aiError} lastUpdated={lastUpdated} onRegenerate={regenerate} bulletFilter={liveNewsFilter} onClearFilter={() => setLiveNewsFilter(null)} hasNews={news.length > 0} hasRealNews={hasRealNews}/>
+                <AISummaryPanel bullets={bullets} loading={aiLoading} error={aiError} lastUpdated={lastUpdated} onRegenerate={regenerate} bulletFilter={liveNewsFilter} onClearFilter={() => setLiveNewsFilter(null)} hasNews={news.length > 0} hasRealNews={hasRealNews} isPlaceholder={isPlaceholder}/>
               </div>
               <div className="space-y-4">
                 <Card>
