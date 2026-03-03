@@ -393,6 +393,7 @@ const useLiveNews = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [hasRealNews, setHasRealNews] = useState(false);
 
   const tryGdeltNews = async () => {
     const query = encodeURIComponent("Middle East Gulf UAE Dubai Iraq Kuwait Saudi Iran Yemen Syria Israel Gaza Jordan Bahrain Qatar Oman Egypt Turkey Palestine US United States missile strike explosion diplomacy sanction political military");
@@ -448,6 +449,7 @@ const useLiveNews = () => {
       const deduped = dedupeNews(articles);
       const diversified = diversifyNewsByRegion(deduped).map((a, i) => ({ ...a, id: i }));
       setNews(diversified);
+      setHasRealNews(true);
       setLastUpdated(new Date());
       setError(null);
     } catch (err) {
@@ -459,9 +461,10 @@ const useLiveNews = () => {
           const deduped = dedupeNews(fallback);
           const diversified = diversifyNewsByRegion(deduped).map((a, i) => ({ ...a, id: i }));
           setNews(diversified);
+          setHasRealNews(true);
           setLastUpdated(new Date());
-        } else setNews(DEMO_NEWS);
-      } catch (_) { setNews(DEMO_NEWS); setLastUpdated(new Date()); }
+        } else { setNews(DEMO_NEWS); setHasRealNews(false); setLastUpdated(new Date()); }
+      } catch (_) { setNews(DEMO_NEWS); setHasRealNews(false); setLastUpdated(new Date()); }
     } finally {
       setLoading(false);
     }
@@ -470,7 +473,7 @@ const useLiveNews = () => {
   useEffect(() => { fetchNews(); }, []);
   useEffect(() => { const id = setInterval(fetchNews, 5 * 60 * 1000); return () => clearInterval(id); }, []);
 
-  return { news, loading, error, lastUpdated, refetch: fetchNews };
+  return { news, loading, error, lastUpdated, hasRealNews, refetch: fetchNews };
 };
 
 const useGdeltMap = () => {
@@ -703,7 +706,7 @@ const filterBullets = (bullets, filter) => {
   return bullets;
 };
 
-const AISummaryPanel = ({ bullets, loading, error, lastUpdated, onRegenerate, bulletFilter, onClearFilter, hasNews = false }) => {
+const AISummaryPanel = ({ bullets, loading, error, lastUpdated, onRegenerate, bulletFilter, onClearFilter, hasNews = false, hasRealNews = false }) => {
   const filteredBullets = filterBullets(bullets, bulletFilter);
   const filterBadge = bulletFilter === "missile" ? { label: "🎯 Missile/strike", style: "bg-red-100 text-red-700 border-red-200" } : bulletFilter === "high" ? { label: "🔴 High-severity", style: "bg-orange-100 text-orange-700 border-orange-200" } : bulletFilter === "medium" ? { label: "🟡 Developing", style: "bg-amber-100 text-amber-700 border-amber-200" } : null;
   return (
@@ -740,7 +743,12 @@ const AISummaryPanel = ({ bullets, loading, error, lastUpdated, onRegenerate, bu
       </div>
     </CardHeader>
     <CardContent className="pt-1">
-      {loading && bullets.length === 0 ? (
+      {!hasRealNews ? (
+        <div className="flex items-center justify-center gap-2 py-6 text-sm text-slate-600">
+          <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"/>
+          Loading latest news
+        </div>
+      ) : loading && bullets.length === 0 ? (
         <div className="flex items-center gap-3 py-4 text-sm text-blue-500"><Spinner size={16}/> Generating briefing from live news…</div>
       ) : bullets.length === 0 ? (
         <p className="text-sm text-slate-400 py-2">{hasNews ? "No military or conflict-related news in this batch. Finance, oil pricing, gold, and commodity news are excluded—military, political, and diplomatic news (including oil sanctions) are included." : "Waiting for news data… Add your NewsAPI key to enable live summaries."}</p>
@@ -770,7 +778,7 @@ const AISummaryPanel = ({ bullets, loading, error, lastUpdated, onRegenerate, bu
           ))}
         </ul>
       )}
-      {filteredBullets.length > 0 && (() => {
+      {hasRealNews && filteredBullets.length > 0 && (() => {
         const newsItems = [...new Map(filteredBullets.filter(b => b.news?.url).map(b => [b.news.url, b.news])).values()];
         if (newsItems.length === 0) return null;
         return (
@@ -1140,7 +1148,7 @@ export default function SafeDXB() {
   const [liveNewsFilter, setLiveNewsFilter] = useState(null);
   const liveNewsRef = useRef(null);
 
-  const { news, loading: nLoading, error: nError, lastUpdated, refetch } = useLiveNews();
+  const { news, loading: nLoading, error: nError, lastUpdated, hasRealNews, refetch } = useLiveNews();
   const { events: mapEvents, loading: mLoading } = useGdeltMap();
   const { bullets, loading: aiLoading, error: aiError, regenerate } = useClaudeSummary(news);
   const userLoc = useUserLocation();
@@ -1202,6 +1210,7 @@ export default function SafeDXB() {
         *{box-sizing:border-box}body{margin:0}
         .ticker-wrap{overflow:hidden}
         .ticker-inner{display:flex;animation:ticker 12s linear infinite;white-space:nowrap}
+        .ticker-inner.ticker-loading{animation:none}
         @keyframes ticker{from{transform:translateX(0)}to{transform:translateX(-50%)}}
         @keyframes spin{to{transform:rotate(360deg)}}
         .animate-spin{animation:spin 1s linear infinite}
@@ -1227,12 +1236,19 @@ export default function SafeDXB() {
           </a>
         </div>
         <div className="ticker-wrap bg-slate-900 text-white border-t border-slate-700 py-1.5">
-          <div className="ticker-inner gap-0">
-            {[...(news.length > 0 ? news : DEMO_NEWS).slice(0,10),...(news.length > 0 ? news : DEMO_NEWS).slice(0,10)].map((n,i) => (
-              <span key={i} className="text-xs text-white font-medium shrink-0 mr-14">
-                {n.severity==="high"?"🔴":n.severity==="medium"?"🟡":"🟢"} {n.title}
+          <div className={cn("ticker-inner gap-0 flex items-center", (nLoading || !hasRealNews) && "ticker-loading justify-center")}>
+            {(nLoading || !hasRealNews) ? (
+              <span className="inline-flex items-center gap-2 text-xs text-white font-medium shrink-0">
+                <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"/>
+                Loading latest news
               </span>
-            ))}
+            ) : (
+              [...news.slice(0,10),...news.slice(0,10)].map((n,i) => (
+                <span key={i} className="text-xs text-white font-medium shrink-0 mr-14">
+                  {n.severity==="high"?"🔴":n.severity==="medium"?"🟡":"🟢"} {n.title}
+                </span>
+              ))
+            )}
           </div>
         </div>
         <div className="bg-white border-b border-slate-200 z-40">
@@ -1341,7 +1357,7 @@ export default function SafeDXB() {
             })()}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div ref={liveNewsRef} className="lg:col-span-2 space-y-5 min-w-0">
-                <AISummaryPanel bullets={bullets} loading={aiLoading} error={aiError} lastUpdated={lastUpdated} onRegenerate={regenerate} bulletFilter={liveNewsFilter} onClearFilter={() => setLiveNewsFilter(null)} hasNews={news.length > 0}/>
+                <AISummaryPanel bullets={bullets} loading={aiLoading} error={aiError} lastUpdated={lastUpdated} onRegenerate={regenerate} bulletFilter={liveNewsFilter} onClearFilter={() => setLiveNewsFilter(null)} hasNews={news.length > 0} hasRealNews={hasRealNews}/>
               </div>
               <div className="space-y-4">
                 <Card>
