@@ -181,9 +181,37 @@ const FLUID_KEYWORDS = /military movement|troops deployed|military buildup|naval
 const NEIGHBOR_REGIONS = ["Iraq","Iran","Kuwait","Yemen","Syria","Lebanon","Israel","Gaza","Saudi Arabia","Bahrain","Qatar","Oman"];
 const UAE_TERMS = /\b(UAE|Dubai|Abu Dhabi|Emirates|Emirati|Sharjah|Fujairah|Ras Al Khaimah)\b/i;
 
+// Countries/regions where Middle East conflict could affect civilian safety (proximity, spillover, travel)
+const MIDDLE_EAST_AFFECTED_ZONE = ["united arab emirates","uae","dubai","abu dhabi","sharjah","fujairah","saudi arabia","riyadh","jeddah","kuwait","bahrain","qatar","oman","muscat","iraq","baghdad","basra","iran","tehran","yemen","syria","damascus","lebanon","beirut","israel","tel aviv","jerusalem","gaza","palestine","west bank","jordan","amman","egypt","cairo","turkey","ankara","cyprus"];
+
+const isInMiddleEastZone = (country, city) => {
+  const loc = `${country || ""} ${city || ""}`.toLowerCase();
+  return MIDDLE_EAST_AFFECTED_ZONE.some(r => loc.includes(r));
+};
+
 const computeStatus = (news, userCity, userCountry) => {
   const isUAE = /united arab emirates|uae|dubai|abu dhabi|sharjah|fujairah/i.test(`${userCountry} ${userCity}`);
+  const inAffectedZone = isInMiddleEastZone(userCountry || "", userCity || "");
   const neighborInNews = (text) => NEIGHBOR_REGIONS.some(r => text.toLowerCase().includes(r.toLowerCase()));
+
+  // If user is outside the Middle East zone (e.g. Singapore, UK), don't elevate status based on ME conflict
+  if (!inAffectedZone && news.length > 0) {
+    return {
+      level: 1, key: "safe",
+      label: "SAFE",
+      sub: "No direct threat to your location",
+      desc: "You are outside the affected region. Conflict in the Middle East does not pose a direct safety risk to your area. Stay informed for travel plans.",
+      reason: "Conflict reported in Middle East; your location is not in the affected zone.",
+      action: null,
+      actionLink: null,
+      color: "text-green-700",
+      gradientFrom: "#f0fdf4", gradientTo: "#dcfce7",
+      borderColor: "#4ade80",
+      pulseColor: "#22c55e",
+      barColors: ["#22c55e","#e5e7eb","#e5e7eb","#e5e7eb"],
+      icon: "✅",
+    };
+  }
 
   const directHitArticle = news.find(n => {
     const t = `${n.title} ${n.summary}`;
@@ -431,7 +459,7 @@ const useLiveNews = () => {
   const tryGdeltNews = async () => {
     const query = encodeURIComponent("Middle East Gulf UAE Dubai Iraq Kuwait Saudi Iran Yemen Syria Israel Gaza Jordan Bahrain Qatar Oman Egypt Turkey Palestine US United States missile strike explosion diplomacy sanction political military");
     const url = `https://api.gdeltproject.org/api/v2/doc/doc?query=${query}&mode=artlist&maxrecords=20&format=json&timespan=1day&sourcelang=eng`;
-    const res = await fetch(url);
+    const res = await fetchWithTimeout(url, {}, 6000);
     const data = await res.json();
     return (data.articles || [])
       .filter(a => a.title && isEnglishContent(a.title) && isEnglishSource(a.domain || a.url || ""))
@@ -458,7 +486,7 @@ const useLiveNews = () => {
       setLoading(false);
       loadCachedFallback().then((cached) => {
         if (Array.isArray(cached) && cached.length > 0) {
-          setNews(cached);
+          setNews(cached.map((a, i) => ({ ...a, id: i })));
           setLastUpdated(new Date());
         }
       }).catch(() => {});
@@ -471,7 +499,7 @@ const useLiveNews = () => {
       const q = encodeURIComponent(
         "((missile OR strike OR explosion OR attack OR ballistic OR military OR troop OR defense OR diplomacy OR diplomatic OR sanction OR summit OR treaty OR agreement OR \"travel advisory\" OR evacuation OR terrorism OR unrest) OR (political OR politics OR government OR regime OR leadership OR regional)) AND (\"Middle East\" OR Gulf OR UAE OR Dubai OR Iraq OR Kuwait OR Saudi OR Iran OR Yemen OR Syria OR Israel OR Gaza OR Jordan OR Bahrain OR Qatar OR Oman OR Egypt OR Turkey OR Palestine OR \"United States\" OR Washington) -gold -\"stock market\" -\"commodity trading\" -\"oil price\" -earnings -dividend -nasdaq -\"brent crude\""
       );
-      const res = await fetch(`https://newsapi.org/v2/everything?q=${q}&language=en&sortBy=publishedAt&pageSize=25&from=${today}&to=${today}&apiKey=${CONFIG.NEWS_API_KEY}`);
+      const res = await fetchWithTimeout(`https://newsapi.org/v2/everything?q=${q}&language=en&sortBy=publishedAt&pageSize=25&from=${today}&to=${today}&apiKey=${CONFIG.NEWS_API_KEY}`, {}, 8000);
       if (!res.ok) throw new Error(`NewsAPI ${res.status}`);
       const data = await res.json();
       if (data.status !== "ok") throw new Error(data.message || "NewsAPI error");
@@ -511,7 +539,7 @@ const useLiveNews = () => {
       setError(null);
     } catch (err) {
       if (err.message === "NO_KEY") setError("no_key");
-      else setError(err.message);
+      else if (err.name !== "AbortError") setError(err.message);
       try {
         const fallback = await tryGdeltNews();
         if (fallback.length > 0) {
@@ -702,6 +730,94 @@ Summarize the war, conflict, and security situation in the Middle East region as
   useEffect(() => { if (news.length > 0) generate(news); }, [news]);
 
   return { bullets, loading, error, regenerate: () => { sigRef.current = null; generate(news); } };
+};
+
+const STATUS_LEVELS = {
+  1: { label: "SAFE", desc: "No direct threats detected near your area. Continue normal activities and stay informed.", color: "text-green-700", gradientFrom: "#f0fdf4", gradientTo: "#dcfce7", borderColor: "#4ade80", pulseColor: "#22c55e", barColors: ["#22c55e","#e5e7eb","#e5e7eb","#e5e7eb"], icon: "✅" },
+  2: { label: "VOLATILE", desc: "Military activity ongoing. Stay aware and monitor official channels.", color: "text-amber-700", gradientFrom: "#fffbeb", gradientTo: "#fef3c7", borderColor: "#fbbf24", pulseColor: "#f59e0b", barColors: ["#22c55e","#f59e0b","#e5e7eb","#e5e7eb"], icon: "🟡" },
+  3: { label: "ALERTED", desc: "A neighboring area has come under attack. Prepare your safe room and keep emergency contacts ready.", color: "text-orange-700", gradientFrom: "#fff7ed", gradientTo: "#ffedd5", borderColor: "#fb923c", pulseColor: "#f97316", barColors: ["#22c55e","#f59e0b","#f97316","#e5e7eb"], icon: "⚠️" },
+  4: { label: "DANGER", desc: "Seek shelter immediately. Move to an interior room away from windows.", color: "text-red-700", gradientFrom: "#fef2f2", gradientTo: "#fee2e2", borderColor: "#f87171", pulseColor: "#ef4444", barColors: ["#22c55e","#f59e0b","#f97316","#ef4444"], icon: "🚨" },
+};
+
+const useAIStatus = (news, userCity, userCountry) => {
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const sigRef = useRef(null);
+
+  useEffect(() => {
+    if (!news?.length || !CONFIG.ANTHROPIC_API_KEY) {
+      setStatus(computeStatus(news || [], userCity || "", userCountry || ""));
+      return;
+    }
+    const sig = `${userCity}|${userCountry}|${news.slice(0, 5).map(n => n.title).join("|")}`.slice(0, 200);
+    if (sig === sigRef.current) return;
+    sigRef.current = sig;
+
+    const run = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const headlines = news.slice(0, 10).map(n => n.title).join("\n");
+        const headers = { "Content-Type": "application/json", "anthropic-version": "2023-06-01", "x-api-key": CONFIG.ANTHROPIC_API_KEY };
+        if (typeof window !== "undefined") headers["anthropic-dangerous-direct-browser-access"] = "true";
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            model: "claude-sonnet-4-20250514",
+            max_tokens: 400,
+            system: `You evaluate personal safety status for a user based on Middle East conflict news and their location.
+
+Given:
+1. User location: city and country
+2. News headlines (conflict, military, strikes in Middle East)
+
+Return a JSON object with:
+- level: 1-4 (1=SAFE, 2=VOLATILE, 3=ALERTED, 4=DANGER)
+- sub: one short phrase for the status
+- desc: 1-2 sentences of practical guidance
+- reason: the main headline or fact driving the assessment (short)
+
+CRITICAL: Consider geographic proximity.
+- User in Singapore, UK, Australia, Japan, US (non-ME), etc. → level 1 SAFE. Conflict in Iran/Iraq does NOT threaten them.
+- User in UAE, Kuwait, Saudi, Qatar, etc. → if strikes in Gulf/neighbors, level 2 or 3.
+- User in Iran, Iraq, Gaza, etc. → level 3 or 4.
+- Direct attack in user's city → level 4.
+
+Return ONLY valid JSON. No markdown.`,
+            messages: [{ role: "user", content: `Location: ${userCity || "Unknown"}, ${userCountry || "Unknown"}\n\nNews:\n${headlines}\n\nJSON:` }],
+          }),
+        });
+        if (!res.ok) throw new Error(`Claude ${res.status}`);
+        const data = await res.json();
+        const raw = data.content?.[0]?.text || "{}";
+        const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
+        const level = Math.min(4, Math.max(1, parseInt(parsed.level, 10) || 1));
+        const theme = STATUS_LEVELS[level] || STATUS_LEVELS[1];
+        setStatus({
+          level, key: ["safe","volatile","alerted","danger"][level - 1],
+          label: parsed.label || theme.label,
+          sub: parsed.sub || (level === 1 ? "No direct threat to your location" : "Situation assessed based on your location"),
+          desc: parsed.desc || theme.desc,
+          reason: parsed.reason || null,
+          action: level >= 3 ? "Review safety guidelines" : null,
+          actionLink: level >= 3 ? "guidelines" : null,
+          ...theme,
+        });
+      } catch (err) {
+        setError(err.message);
+        setStatus(computeStatus(news, userCity || "", userCountry || ""));
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    run();
+  }, [news, userCity, userCountry]);
+
+  const ruleStatus = computeStatus(news || [], userCity || "", userCountry || "");
+  return { status: status ?? ruleStatus, loading, error };
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -1220,6 +1336,7 @@ export default function SafeDXB() {
   const { events: mapEvents, loading: mLoading } = useGdeltMap();
   const { bullets, loading: aiLoading, error: aiError, regenerate } = useClaudeSummary(news);
   const userLoc = useUserLocation();
+  const { status: aiStatus, loading: statusLoading } = useAIStatus(news, userLoc.city, userLoc.country);
 
   const hasKey = !!CONFIG.NEWS_API_KEY;
 
@@ -1231,7 +1348,7 @@ export default function SafeDXB() {
   const highCount = news.filter(n => n.severity === "high").length;
   const missileCount = news.filter(n => /missile|ballistic|rocket|strike|explosion|blast/i.test(n.title)).length;
   const locRisk = assessLocationRisk(userLoc.country || "", userLoc.city || "");
-  const status = computeStatus(news, userLoc.city || "", userLoc.country || "");
+  const status = aiStatus;
   const filtered  = news.filter(n => filter === "all" || n.severity === filter);
   const regionCounts = news.reduce((a, n) => { a[n.region] = (a[n.region] || 0) + 1; return a; }, {});
 
@@ -1406,16 +1523,22 @@ export default function SafeDXB() {
                     </div>
                     {!isLoading && (
                       <div className="flex items-center flex-wrap gap-2 pt-4 border-t" style={{ borderColor: `${status.borderColor}60` }}>
-                        {missileCount > 0 && (
-                          <button onClick={() => { setLiveNewsFilter("missile"); liveNewsRef.current?.scrollIntoView({ behavior: "smooth" }); }} className="inline-flex items-center gap-1.5 text-[11px] font-medium bg-red-100 text-red-700 border border-red-200 rounded-full px-3 py-1 hover:bg-red-200/50 transition-colors cursor-pointer">🎯 {missileCount} missile/strike report{missileCount > 1 ? "s" : ""}</button>
+                        {status.level === 1 ? (
+                          <span className="inline-flex items-center gap-1.5 text-[11px] font-medium bg-green-100 text-green-700 border border-green-200 rounded-full px-3 py-1">✓ No active threats to your location</span>
+                        ) : (
+                          <>
+                            {missileCount > 0 && (
+                              <button onClick={() => { setLiveNewsFilter("missile"); liveNewsRef.current?.scrollIntoView({ behavior: "smooth" }); }} className="inline-flex items-center gap-1.5 text-[11px] font-medium bg-red-100 text-red-700 border border-red-200 rounded-full px-3 py-1 hover:bg-red-200/50 transition-colors cursor-pointer">🎯 {missileCount} missile/strike report{missileCount > 1 ? "s" : ""}</button>
+                            )}
+                            {highCount > 0 && (
+                              <button onClick={() => { setLiveNewsFilter("high"); liveNewsRef.current?.scrollIntoView({ behavior: "smooth" }); }} className="inline-flex items-center gap-1.5 text-[11px] font-medium bg-orange-100 text-orange-700 border border-orange-200 rounded-full px-3 py-1 hover:bg-orange-200/50 transition-colors cursor-pointer">🔴 {highCount} high-severity alert{highCount > 1 ? "s" : ""}</button>
+                            )}
+                            {news.filter(n => n.severity === "medium").length > 0 && (
+                              <button onClick={() => { setLiveNewsFilter("medium"); liveNewsRef.current?.scrollIntoView({ behavior: "smooth" }); }} className="inline-flex items-center gap-1.5 text-[11px] font-medium bg-amber-100 text-amber-700 border border-amber-200 rounded-full px-3 py-1 hover:bg-amber-200/50 transition-colors cursor-pointer">🟡 {news.filter(n => n.severity === "medium").length} developing</button>
+                            )}
+                            {missileCount === 0 && highCount === 0 && <span className="inline-flex items-center gap-1.5 text-[11px] font-medium bg-green-100 text-green-700 border border-green-200 rounded-full px-3 py-1">✓ No active threats detected</span>}
+                          </>
                         )}
-                        {highCount > 0 && (
-                          <button onClick={() => { setLiveNewsFilter("high"); liveNewsRef.current?.scrollIntoView({ behavior: "smooth" }); }} className="inline-flex items-center gap-1.5 text-[11px] font-medium bg-orange-100 text-orange-700 border border-orange-200 rounded-full px-3 py-1 hover:bg-orange-200/50 transition-colors cursor-pointer">🔴 {highCount} high-severity alert{highCount > 1 ? "s" : ""}</button>
-                        )}
-                        {news.filter(n => n.severity === "medium").length > 0 && (
-                          <button onClick={() => { setLiveNewsFilter("medium"); liveNewsRef.current?.scrollIntoView({ behavior: "smooth" }); }} className="inline-flex items-center gap-1.5 text-[11px] font-medium bg-amber-100 text-amber-700 border border-amber-200 rounded-full px-3 py-1 hover:bg-amber-200/50 transition-colors cursor-pointer">🟡 {news.filter(n => n.severity === "medium").length} developing</button>
-                        )}
-                        {missileCount === 0 && highCount === 0 && <span className="inline-flex items-center gap-1.5 text-[11px] font-medium bg-green-100 text-green-700 border border-green-200 rounded-full px-3 py-1">✓ No active threats detected</span>}
                         {status.action && <span className="basis-full"><button onClick={() => setTab(status.actionLink)} className="inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-4 py-1.5 h-12 rounded-full text-white transition-all hover:opacity-90 cursor-pointer min-w-[220px]" style={{ background: status.pulseColor }}>{status.action}<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg></button></span>}
                       </div>
                     )}
