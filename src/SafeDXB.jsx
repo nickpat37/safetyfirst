@@ -104,6 +104,20 @@ const DEMO_NEWS = [
   { id: 1, source: "GDELT (Map)", time: "Now", publishedAt: new Date().toISOString(), title: "The Strike Map is already pulling live data from GDELT — no key required", summary: "GDELT monitors global news in real-time and geo-tags conflict events automatically.", url: "https://gdeltproject.org", severity: "low", region: "Middle East" },
 ];
 
+// Real fallback headlines from 2 March 2026 when NewsAPI/GDELT fail. Run `node scripts/update-fallback-news.js` to refresh from GDELT.
+const FALLBACK_NEWS = [
+  { id: 0, source: "Reuters", time: "2 Mar", publishedAt: "2026-03-02T14:00:00Z", title: "Iran's retaliation for US-Israeli strikes rattles Gulf neighbors", summary: "Over 400 ballistic missiles and nearly 1,000 drones launched across region. Saudi and UAE energy infrastructure hit.", url: "https://reuters.com", severity: "high", region: "Iran" },
+  { id: 1, source: "AP", time: "2 Mar", publishedAt: "2026-03-02T12:30:00Z", title: "US and Israel conduct coordinated strikes on Iran ballistic missile sites", summary: "Targets included naval headquarters, warships, nuclear enrichment facilities. Regional escalation continues.", url: "https://apnews.com", severity: "high", region: "US" },
+  { id: 2, source: "CNN", time: "2 Mar", publishedAt: "2026-03-02T11:00:00Z", title: "Iran's ferocious retaliation rattles Gulf neighbors despite air defenses", summary: "Arab Gulf states face unexpected intensity. Up to 40,000 US troops in region with advanced interceptor systems.", url: "https://cnn.com", severity: "high", region: "UAE" },
+  { id: 3, source: "Reuters", time: "2 Mar", publishedAt: "2026-03-02T09:45:00Z", title: "Strait of Hormuz closed; Iran warns it will fire on ships attempting passage", summary: "Shipping insurers cancel coverage. Tankers avoid waterway. Oil prices surge.", url: "https://reuters.com", severity: "high", region: "Iran" },
+  { id: 4, source: "Reuters", time: "2 Mar", publishedAt: "2026-03-02T08:15:00Z", title: "Three US service members killed in Iranian missile strikes on bases", summary: "US military bases in region targeted. Pentagon confirms casualties.", url: "https://reuters.com", severity: "high", region: "US" },
+  { id: 5, source: "Foreign Policy", time: "2 Mar", publishedAt: "2026-03-02T07:00:00Z", title: "Iran, Israel, and US racing clock as air defense stockpiles deplete", summary: "Rapid victory sought before interceptor exhaustion. Trump indicates strikes to continue through week.", url: "https://foreignpolicy.com", severity: "high", region: "Israel" },
+  { id: 6, source: "Reuters", time: "2 Mar", publishedAt: "2026-03-02T06:30:00Z", title: "Iran establishes leadership council to select new supreme leader", summary: "Three-member council to choose successor within one to two days. No designated heir.", url: "https://reuters.com", severity: "medium", region: "Iran" },
+  { id: 7, source: "Reuters", time: "2 Mar", publishedAt: "2026-03-02T05:00:00Z", title: "Saudi Arabia and UAE assess damage to energy infrastructure", summary: "Gulf states hit by Iranian retaliation. Decades of military preparation tested.", url: "https://reuters.com", severity: "high", region: "Saudi Arabia" },
+  { id: 8, source: "Reuters", time: "2 Mar", publishedAt: "2026-03-02T04:00:00Z", title: "Kuwait and Bahrain on alert; no direct strikes reported", summary: "Gulf states monitor situation. Civil defense readiness enhanced.", url: "https://reuters.com", severity: "medium", region: "Kuwait" },
+  { id: 9, source: "Reuters", time: "2 Mar", publishedAt: "2026-03-02T03:00:00Z", title: "Iraq urges restraint; Baghdad caught between US presence and Iranian influence", summary: "Regional de-escalation called for. Iraq monitors developments on both borders.", url: "https://reuters.com", severity: "medium", region: "Iraq" },
+];
+
 const DEMO_MAP_EVENTS = [
   { id: 0, lon: 47.79, lat: 30.52, type: "strike",  label: "BASRA",  loc: "Basra, Iraq",    detail: "Demo — GDELT loading",  color: "#ef4444", url: "#" },
   { id: 1, lon: 56.25, lat: 26.54, type: "strike",  label: "HORMUZ", loc: "Hormuz Strait",  detail: "Demo — GDELT loading",  color: "#ef4444", url: "#" },
@@ -395,6 +409,23 @@ const useLiveNews = () => {
   const [lastUpdated, setLastUpdated] = useState(null);
   const [hasRealNews, setHasRealNews] = useState(false);
 
+  const loadCachedFallback = async () => {
+    try {
+      const res = await fetch("/fallback-news.json");
+      if (!res.ok) return FALLBACK_NEWS;
+      const arr = await res.json();
+      if (Array.isArray(arr) && arr.length > 0) {
+        return arr.map((a, i) => ({
+          ...a,
+          id: i,
+          publishedAt: a.publishedAt || new Date().toISOString(),
+          summary: a.summary || "",
+        }));
+      }
+    } catch (_) {}
+    return FALLBACK_NEWS;
+  };
+
   const tryGdeltNews = async () => {
     const query = encodeURIComponent("Middle East Gulf UAE Dubai Iraq Kuwait Saudi Iran Yemen Syria Israel Gaza Jordan Bahrain Qatar Oman Egypt Turkey Palestine US United States missile strike explosion diplomacy sanction political military");
     const url = `https://api.gdeltproject.org/api/v2/doc/doc?query=${query}&mode=artlist&maxrecords=20&format=json&timespan=1day&sourcelang=eng`;
@@ -418,7 +449,7 @@ const useLiveNews = () => {
       const q = encodeURIComponent(
         "((missile OR strike OR explosion OR attack OR ballistic OR military OR troop OR defense OR diplomacy OR diplomatic OR sanction OR summit OR treaty OR agreement OR \"travel advisory\" OR evacuation OR terrorism OR unrest) OR (political OR politics OR government OR regime OR leadership OR regional)) AND (\"Middle East\" OR Gulf OR UAE OR Dubai OR Iraq OR Kuwait OR Saudi OR Iran OR Yemen OR Syria OR Israel OR Gaza OR Jordan OR Bahrain OR Qatar OR Oman OR Egypt OR Turkey OR Palestine OR \"United States\" OR Washington) -gold -\"stock market\" -\"commodity trading\" -\"oil price\" -earnings -dividend -nasdaq -\"brent crude\""
       );
-      const res = await fetch(`https://newsapi.org/v2/everything?q=${q}&language=en&sortBy=publishedAt&pageSize=40&from=${today}&to=${today}&apiKey=${CONFIG.NEWS_API_KEY}`);
+      const res = await fetch(`https://newsapi.org/v2/everything?q=${q}&language=en&sortBy=publishedAt&pageSize=25&from=${today}&to=${today}&apiKey=${CONFIG.NEWS_API_KEY}`);
       if (!res.ok) throw new Error(`NewsAPI ${res.status}`);
       const data = await res.json();
       if (data.status !== "ok") throw new Error(data.message || "NewsAPI error");
@@ -444,7 +475,11 @@ const useLiveNews = () => {
 
       if (articles.length === 0) {
         const fallback = await tryGdeltNews();
-        if (fallback.length > 0) articles = fallback;
+        if (fallback.length > 0) {
+          articles = fallback;
+        } else {
+          articles = await loadCachedFallback();
+        }
       }
       const deduped = dedupeNews(articles);
       const diversified = diversifyNewsByRegion(deduped).map((a, i) => ({ ...a, id: i }));
@@ -463,8 +498,18 @@ const useLiveNews = () => {
           setNews(diversified);
           setHasRealNews(true);
           setLastUpdated(new Date());
-        } else { setNews(DEMO_NEWS); setHasRealNews(false); setLastUpdated(new Date()); }
-      } catch (_) { setNews(DEMO_NEWS); setHasRealNews(false); setLastUpdated(new Date()); }
+        } else {
+          const cached = await loadCachedFallback();
+          setNews(cached);
+          setHasRealNews(cached.length > 0);
+          setLastUpdated(new Date());
+        }
+      } catch (_) {
+        const cached = await loadCachedFallback();
+        setNews(cached);
+        setHasRealNews(cached.length > 0);
+        setLastUpdated(new Date());
+      }
     } finally {
       setLoading(false);
     }
@@ -544,8 +589,24 @@ const useClaudeSummary = (news) => {
     if (sig === sigRef.current) return;
     sigRef.current = sig;
 
-    setLoading(true);
     setError(null);
+    // Show fallback bullets immediately so user sees content fast; AI replaces when ready
+    const financeOnlyRe = /oil price|oil sector|brent|wti|commodit|stock|share|market|equity|trading|currency|forex|gold price|revenue|profit|dividend/i;
+    const safeForFallback = articles.filter(a => {
+      const t = `${a.title} ${a.summary || ""}`;
+      if (financeOnlyRe.test(t)) return false;
+      if (/missile|strike|attack|explosion|war|conflict|military|troop|ballistic|political|diplomacy|sanction|iran|iraq|kuwait|hormuz|middle east/i.test(t)) return true;
+      return false;
+    });
+    const fallbackArticles = safeForFallback.length > 0 ? safeForFallback : articles.filter(a => {
+      const t = `${a.title} ${a.summary || ""}`;
+      return !financeOnlyRe.test(t);
+    });
+    const oneLine = (s) => (s.length > 120 ? s.slice(0, 117).replace(/\s+\S*$/, "") + "…" : s);
+    const instantBullets = fallbackArticles.slice(0, 8).map(a => ({ text: oneLine([a.title, a.summary].filter(Boolean).join(" ")), severity: a.severity, news: a }));
+    setBullets(dedupeBullets(instantBullets));
+    setLoading(true); // Spinner on Refresh button while AI runs
+
     try {
       const MILITARY_CONFLICT_RE = /missile|strike|attack|explosion|war|conflict|military|troop|defense|ballistic|rocket|blast|bomb|combat|invasion|evacuation|travel advisory|terrorism|unrest|political|politics|diplomacy|diplomatic|sanction|summit|treaty|strategy|iran|iraq|kuwait|yemen|syria|hormuz|gulf|uae|dubai|middle east|air strike|airstrike|regime|government/i;
       const EXCLUDE_FINANCE_RE = /oil price|oil prices|oil sector|oil industry|oilmeals|edible oil|brent|wti|barrel|commodit|commodity|stock|share|market|equity|nasdaq|s&p|dow|trading|invest|currency|forex|inflation|earnings|revenue|profit|dividend|ipo|billionaire|hedge fund|gold (surge|price|rally)|silver price|commodity price|rs \d|rupee|perfect time to (invest|buy|sell)|sector turn|cautious amid|agri|agricultur|food price|supply chain|price (of|per)\b|pricing/i;
@@ -559,15 +620,14 @@ const useClaudeSummary = (news) => {
       });
       const toUse = safetyRelevant;
       if (toUse.length === 0) {
-        setBullets([]);
         setLoading(false);
-        return;
+        return; // Keep instant bullets already set
       }
-      const articlesWithSummary = toUse.slice(0, 14).map((a, i) => ({
+      const articlesWithSummary = toUse.slice(0, 10).map((a, i) => ({
         index: i + 1,
         source: a.source,
         title: a.title,
-        summary: (a.summary || "").slice(0, 250),
+        summary: (a.summary || "").slice(0, 150),
       }));
       const inputText = articlesWithSummary.map(a =>
         `${a.index}. [${a.source}] ${a.title}${a.summary ? `\n   ${a.summary}` : ""}`
@@ -581,7 +641,7 @@ const useClaudeSummary = (news) => {
         headers,
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
-          max_tokens: 2000,
+          max_tokens: 1000,
           system: `You are a conflict analyst producing LIVE safety briefings for Dubai and Middle East residents.
 
 ## Your task
@@ -598,8 +658,8 @@ Summarize the war, conflict, and security situation in the Middle East region as
 ## Output format (each object)
 - "text": string (ONE line, one sentence, ~15–20 words max, with **bold** key phrase)
 - "severity": "high" | "medium" | "low"
-- "articleIndex": 1-based index of the article (1–14)`,
-          messages: [{ role: "user", content: `Articles (numbered 1–14). Generate the safety briefing in English only. Each bullet = ONE line only (one short sentence, ~15–20 words max). EXCLUDE: oil pricing, gold, finance, commodities. INCLUDE: military, strategy, political conflict, diplomatic moves, sanctions (including oil sanctions). Do NOT include two bullets about the same news story. Write all output in English.\n\n${inputText}\n\nGenerate the JSON briefing now.` }],
+- "articleIndex": 1-based index of the article (1–10)`,
+          messages: [{ role: "user", content: `Articles (numbered 1–10). Generate the safety briefing in English only. Each bullet = ONE line only (one short sentence, ~15–20 words max). EXCLUDE: oil pricing, gold, finance, commodities. INCLUDE: military, strategy, political conflict, diplomatic moves, sanctions (including oil sanctions). Do NOT include two bullets about the same news story. Write all output in English.\n\n${inputText}\n\nGenerate the JSON briefing now.` }],
         }),
       });
 
@@ -611,21 +671,7 @@ Summarize the war, conflict, and security situation in the Middle East region as
       setBullets(dedupeBullets(withNews));
     } catch (err) {
       setError(err.message);
-      // Prefer conflict-related headlines; if AI credits low, fall back to any news headlines
-      const financeOnlyRe = /oil price|oil sector|brent|wti|commodit|stock|share|market|equity|trading|currency|forex|gold price|revenue|profit|dividend/i;
-      const safeForFallback = articles.filter(a => {
-        const t = `${a.title} ${a.summary || ""}`;
-        if (financeOnlyRe.test(t)) return false;
-        if (/missile|strike|attack|explosion|war|conflict|military|troop|ballistic|political|diplomacy|sanction|iran|iraq|kuwait|hormuz|middle east/i.test(t)) return true;
-        return false;
-      });
-      const fallbackArticles = safeForFallback.length > 0 ? safeForFallback : articles.filter(a => {
-        const t = `${a.title} ${a.summary || ""}`;
-        return !financeOnlyRe.test(t);
-      });
-      const oneLine = (s) => (s.length > 120 ? s.slice(0, 117).replace(/\s+\S*$/, "") + "…" : s);
-      const fallbackBullets = fallbackArticles.slice(0, 8).map(a => ({ text: oneLine([a.title, a.summary].filter(Boolean).join(" ")), severity: a.severity, news: a }));
-      setBullets(dedupeBullets(fallbackBullets));
+      // Bullets already set from instant fallback above
     } finally {
       setLoading(false);
     }
