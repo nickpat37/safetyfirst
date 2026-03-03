@@ -1,13 +1,13 @@
 import { useState, useEffect, useRef } from "react";
+import { geoPath, geoMercator } from "d3-geo";
+import { feature } from "topojson-client";
 
 // ─────────────────────────────────────────────────────────────
-//  ⚙️  API CONFIGURATION  — paste your keys here
+//  ⚙️  API CONFIGURATION  — set via .env (see .env.example)
 // ─────────────────────────────────────────────────────────────
 const CONFIG = {
-  // 1. NewsAPI  →  https://newsapi.org/register  (free, 100 req/day)
-  NEWS_API_KEY: "3bb98b8774b542ef93f4202f2d59e9b8",
-  // 2. Claude API — injected automatically by the Artifacts runtime
-  // 3. GDELT — no key required, fully free & open
+  NEWS_API_KEY: import.meta.env?.VITE_NEWS_API_KEY ?? "",
+  ANTHROPIC_API_KEY: import.meta.env?.VITE_ANTHROPIC_API_KEY ?? "",
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -25,7 +25,7 @@ const Badge = ({ children, variant = "default", className = "" }) => {
     secondary:   "bg-slate-100 text-slate-700",
     blue:        "bg-blue-100 text-blue-700 border border-blue-200",
   };
-  return <span className={cn("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium", v[variant], className)}>{children}</span>;
+  return <span className={cn("inline-flex items-center rounded-full px-2.5 py-0.5 h-[16px] text-[10px] font-medium", v[variant], className)}>{children}</span>;
 };
 const Card = ({ children, className = "" }) => <div className={cn("rounded-xl border border-slate-200 bg-white shadow-sm", className)}>{children}</div>;
 const CardHeader = ({ children, className = "" }) => <div className={cn("flex flex-col space-y-1 p-5 pb-3", className)}>{children}</div>;
@@ -79,11 +79,18 @@ const extractRegion = (text = "") => {
   return "Middle East";
 };
 
-// Convert lat/lon to SVG coords (Middle East bounding box: lon 30–75, lat 12–42)
-const geoToSVG = (lon, lat) => ({
-  cx: Math.round(((lon - 30) / (75 - 30)) * 800),
-  cy: Math.round(((42 - lat) / (42 - 12)) * 480),
-});
+// Mercator projection matching StrikeMap — center Middle East, scale to fit
+const mapProjection = geoMercator().center([54, 26]).scale(720).translate([400, 260]);
+const projectPoint = (lon, lat) => {
+  const p = mapProjection([lon, lat]);
+  return p ? [Math.round(p[0]), Math.round(p[1])] : [400, 280];
+};
+
+const isCityOrCountry = (loc) => {
+  const s = (loc || "").toLowerCase();
+  if (/strait|gulf|sea\b|ocean|channel|passage|basin|waters?\b/.test(s)) return false;
+  return true;
+};
 
 // ─────────────────────────────────────────────────────────────
 //  Static data
@@ -94,10 +101,10 @@ const DEMO_NEWS = [
 ];
 
 const DEMO_MAP_EVENTS = [
-  { id: 0, cx: 462, cy: 248, type: "strike",  label: "BASRA",  loc: "Basra, Iraq",    detail: "Demo — GDELT loading",  color: "#ef4444", url: "#" },
-  { id: 1, cx: 585, cy: 295, type: "strike",  label: "HORMUZ", loc: "Hormuz Strait",  detail: "Demo — GDELT loading",  color: "#ef4444", url: "#" },
-  { id: 2, cx: 487, cy: 272, type: "warning", label: "KUWAIT", loc: "Kuwait",         detail: "Demo — GDELT loading",  color: "#f59e0b", url: "#" },
-  { id: 3, cx: 548, cy: 327, type: "safe",    label: "DUBAI",  loc: "Dubai, UAE",     detail: "No incidents reported", color: "#22c55e", url: "#" },
+  { id: 0, lon: 47.79, lat: 30.52, type: "strike",  label: "BASRA",  loc: "Basra, Iraq",    detail: "Demo — GDELT loading",  color: "#ef4444", url: "#" },
+  { id: 1, lon: 56.25, lat: 26.54, type: "strike",  label: "HORMUZ", loc: "Hormuz Strait",  detail: "Demo — GDELT loading",  color: "#ef4444", url: "#" },
+  { id: 2, lon: 47.98, lat: 29.38, type: "warning", label: "KUWAIT", loc: "Kuwait",         detail: "Demo — GDELT loading",  color: "#f59e0b", url: "#" },
+  { id: 3, lon: 55.27, lat: 25.20, type: "safe",    label: "DUBAI",  loc: "Dubai, UAE",     detail: "No incidents reported", color: "#22c55e", url: "#" },
 ];
 
 const GUIDELINES = [
@@ -162,15 +169,16 @@ const computeStatus = (news, userCity, userCountry) => {
   const isUAE = /united arab emirates|uae|dubai|abu dhabi|sharjah|fujairah/i.test(`${userCountry} ${userCity}`);
   const neighborInNews = (text) => NEIGHBOR_REGIONS.some(r => text.toLowerCase().includes(r.toLowerCase()));
 
-  const directHit = news.some(n => {
+  const directHitArticle = news.find(n => {
     const t = `${n.title} ${n.summary}`;
     return DIRECT_ATTACK_KEYWORDS.test(t) && (isUAE ? UAE_TERMS.test(t) : t.toLowerCase().includes((userCity || "").toLowerCase()));
   });
-  if (directHit) return {
+  if (directHitArticle) return {
     level: 4, key: "danger",
     label: "DANGER",
     sub: "Direct attack reported in your area",
     desc: "Seek shelter immediately. Move to an interior room away from windows. Call emergency services (999). Do not leave unless your building is on fire.",
+    reason: directHitArticle.title,
     action: "Take shelter NOW",
     actionLink: "hotlines",
     color: "text-red-700",
@@ -181,15 +189,16 @@ const computeStatus = (news, userCity, userCountry) => {
     icon: "🚨",
   };
 
-  const neighborAttacked = news.some(n => {
+  const neighborAttackedArticle = news.find(n => {
     const t = `${n.title} ${n.summary}`;
     return NEIGHBOR_ATTACK_KEYWORDS.test(t) && neighborInNews(t) && n.severity === "high";
   });
-  if (neighborAttacked) return {
+  if (neighborAttackedArticle) return {
     level: 3, key: "alerted",
     label: "ALERTED",
     sub: "Attack confirmed in a nearby region",
     desc: "A neighboring area has come under attack. Prepare your safe room, charge your devices, and keep emergency contacts ready. Avoid crowded outdoor areas.",
+    reason: neighborAttackedArticle.title,
     action: "Review safety guidelines",
     actionLink: "guidelines",
     color: "text-orange-700",
@@ -200,15 +209,16 @@ const computeStatus = (news, userCity, userCountry) => {
     icon: "⚠️",
   };
 
-  const volatile = news.some(n => {
+  const volatileArticle = news.find(n => {
     const t = `${n.title} ${n.summary}`;
     return (FLUID_KEYWORDS.test(t) || (NEIGHBOR_ATTACK_KEYWORDS.test(t) && n.severity === "medium")) && neighborInNews(t);
   });
-  if (volatile) return {
+  if (volatileArticle) return {
     level: 2, key: "volatile",
     label: "VOLATILE",
     sub: "Active military operations in the region",
     desc: "Military activity is ongoing nearby. The situation is fluid and could escalate without warning. Stay aware, review your emergency plan, and monitor official channels.",
+    reason: volatileArticle.title,
     action: "Stay informed",
     actionLink: "news",
     color: "text-amber-700",
@@ -224,6 +234,7 @@ const computeStatus = (news, userCity, userCountry) => {
     label: "SAFE",
     sub: "No direct threats to your location",
     desc: "No active threats detected near your area. Situation across the broader region continues to be monitored. Continue normal activities and stay informed.",
+    reason: news.length > 0 ? "No attack or military escalation in current headlines." : "Waiting for news data. Add your NewsAPI key to enable live monitoring.",
     action: null,
     actionLink: null,
     color: "text-green-700",
@@ -290,6 +301,91 @@ const useUserLocation = () => {
   return location;
 };
 
+const dedupeBullets = (items) => {
+  const result = [];
+  for (const b of items) {
+    const url = b.news?.url;
+    const titleNorm = (b.news?.title || "").toLowerCase().trim().slice(0, 60);
+    const textWords = new Set((b.text || "").toLowerCase().replace(/\*\*/g, "").split(/\W+/).filter(w => w.length >= 4));
+    const isDup = result.some((prev) => {
+      if (url && prev.news?.url === url) return true;
+      if (titleNorm && prev.news?.title && (prev.news.title || "").toLowerCase().trim().slice(0, 60) === titleNorm) return true;
+      const prevWords = new Set((prev.text || "").toLowerCase().replace(/\*\*/g, "").split(/\W+/).filter(w => w.length >= 4));
+      const overlap = [...textWords].filter(w => prevWords.has(w)).length;
+      return overlap >= 4;
+    });
+    if (!isDup) result.push(b);
+  }
+  return result;
+};
+
+/** Remove duplicate/similar news articles (same URL, same title, or high content overlap) */
+const dedupeNews = (articles) => {
+  const result = [];
+  for (const a of articles) {
+    const url = a.url;
+    const titleNorm = (a.title || "").toLowerCase().trim().slice(0, 80);
+    const content = `${a.title || ""} ${a.summary || ""}`.toLowerCase();
+    const words = new Set(content.split(/\W+/).filter(w => w.length >= 4));
+    const isDup = result.some((prev) => {
+      if (url && prev.url === url) return true;
+      if (titleNorm && (prev.title || "").toLowerCase().trim().slice(0, 80) === titleNorm) return true;
+      const prevWords = new Set(`${prev.title || ""} ${prev.summary || ""}`.toLowerCase().split(/\W+/).filter(w => w.length >= 4));
+      const overlap = [...words].filter(w => prevWords.has(w)).length;
+      return overlap >= 5; // same story if 5+ significant words overlap
+    });
+    if (!isDup) result.push(a);
+  }
+  return result;
+};
+
+/** Diversify articles by region — interleave so we don't show all from one country (e.g. Iran) */
+const diversifyNewsByRegion = (articles, maxPerRegion = 3) => {
+  const byRegion = {};
+  for (const a of articles) {
+    const r = a.region || "Middle East";
+    if (!byRegion[r]) byRegion[r] = [];
+    byRegion[r].push(a);
+  }
+  // Sort each region by date (newest first)
+  for (const r of Object.keys(byRegion)) {
+    byRegion[r].sort((a, b) => new Date(b.publishedAt || 0) - new Date(a.publishedAt || 0));
+  }
+  const result = [];
+  for (let round = 0; round < maxPerRegion; round++) {
+    for (const r of Object.keys(byRegion)) {
+      if (byRegion[r][round]) result.push(byRegion[r][round]);
+    }
+  }
+  // Append any remaining (from regions with many articles) sorted by date
+  const used = new Set(result);
+  const remaining = articles.filter(a => !used.has(a));
+  remaining.sort((a, b) => new Date(b.publishedAt || 0) - new Date(a.publishedAt || 0));
+  return [...result, ...remaining];
+};
+
+const isEnglishText = (text) => {
+  if (!text || typeof text !== "string") return true;
+  const cjk = (text.match(/[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/g) || []).length;
+  const total = text.replace(/\s/g, "").length || 1;
+  return cjk / total < 0.15;
+};
+const hasCyrillic = (text) => /[\u0400-\u04FF]/.test(text || "");
+const NON_ENGLISH_SOURCE = /(^|\.)(de|fr|es|it|pt|ru|nl|pl|tr|ar)\.|\.(de|fr|es|it|pt|ru|nl|pl|tr)\b/i;
+const NON_ENGLISH_WORDS = /\b(der|die|das|und|auf|zu|mit|für|ist|wird|werden|hat|haben|erneut|alarm|krieg|drohnen|militär|abgefangen|zypern|neue|alle|auch|nur|nicht|oder|aber|le|la|les|et|dans|pour|avec|sont|ont|une|des|el|los|las|del|que|son|una|por|con)\b/i;
+const isEnglishContent = (text) => {
+  if (!text || typeof text !== "string") return !!text;
+  if (hasCyrillic(text)) return false;
+  if (!isEnglishText(text)) return false;
+  if (NON_ENGLISH_WORDS.test(text)) return false;
+  return true;
+};
+const isEnglishSource = (source) => {
+  if (!source) return true;
+  const s = String(source).toLowerCase();
+  return !NON_ENGLISH_SOURCE.test(s);
+};
+
 const useLiveNews = () => {
   const [news, setNews] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -298,32 +394,42 @@ const useLiveNews = () => {
 
   const tryGdeltNews = async () => {
     const query = encodeURIComponent("missile attack strike explosion Iran Iraq Kuwait UAE Dubai Saudi Arabia");
-    const url = `https://api.gdeltproject.org/api/v2/doc/doc?query=${query}&mode=artlist&maxrecords=20&format=json&timespan=3days&sourcelang=eng`;
+    const url = `https://api.gdeltproject.org/api/v2/doc/doc?query=${query}&mode=artlist&maxrecords=20&format=json&timespan=1day&sourcelang=eng`;
     const res = await fetch(url);
     const data = await res.json();
-    return (data.articles || []).slice(0, 15).map((a, i) => ({
-      id: i, source: a.domain || "GDELT", time: formatTimeAgo(a.seendate),
-      publishedAt: a.seendate, title: a.title, summary: "",
-      url: a.url, severity: classifySeverity(a.title), region: extractRegion(a.title),
-    }));
+    return (data.articles || [])
+      .filter(a => a.title && isEnglishContent(a.title) && isEnglishSource(a.domain || a.url || ""))
+      .slice(0, 15).map((a, i) => ({
+        id: i, source: a.domain || "GDELT", time: formatTimeAgo(a.seendate),
+        publishedAt: a.seendate, title: a.title, summary: "",
+        url: a.url, severity: classifySeverity(a.title), region: extractRegion(a.title),
+      }));
   };
 
   const fetchNews = async () => {
     setLoading(true);
     setError(null);
     try {
-      if (CONFIG.NEWS_API_KEY === "YOUR_NEWSAPI_KEY") throw new Error("NO_KEY");
-
+      if (!CONFIG.NEWS_API_KEY) throw new Error("NO_KEY");
+      const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Dubai" });
       const q = encodeURIComponent(
-        "(missile OR strike OR explosion OR attack OR ballistic OR Iran OR \"Middle East\") AND (UAE OR Dubai OR Iraq OR Kuwait OR Saudi OR Hormuz)"
+        "(missile OR strike OR explosion OR attack OR ballistic OR Iran OR \"Middle East\" OR \"military\" OR \"troop\" OR \"defense\") AND (UAE OR Dubai OR Iraq OR Kuwait OR Saudi OR Hormuz) -oil -gold -price -stock -market -finance -commodity -OPEC -crude -trading"
       );
-      const res = await fetch(`https://newsapi.org/v2/everything?q=${q}&language=en&sortBy=publishedAt&pageSize=20&apiKey=${CONFIG.NEWS_API_KEY}`);
+      const res = await fetch(`https://newsapi.org/v2/everything?q=${q}&language=en&sortBy=publishedAt&pageSize=20&from=${today}&to=${today}&apiKey=${CONFIG.NEWS_API_KEY}`);
       if (!res.ok) throw new Error(`NewsAPI ${res.status}`);
       const data = await res.json();
       if (data.status !== "ok") throw new Error(data.message || "NewsAPI error");
 
-      const articles = (data.articles || [])
-        .filter(a => a.title && a.title !== "[Removed]")
+      const filterByLang = (a) => {
+        if (!a.title || a.title === "[Removed]") return false;
+        if (!isEnglishContent(a.title)) return false;
+        const src = a.source?.name || a.url || "";
+        if (!isEnglishSource(src)) return false;
+        if (a.description && !isEnglishContent(a.description)) return false;
+        return true;
+      };
+      let articles = (data.articles || [])
+        .filter(filterByLang)
         .map((a, i) => ({
           id: i, source: a.source?.name || "Unknown",
           time: formatTimeAgo(a.publishedAt), publishedAt: a.publishedAt,
@@ -333,7 +439,13 @@ const useLiveNews = () => {
           region: extractRegion(`${a.title} ${a.description}`),
         }));
 
-      setNews(articles);
+      if (articles.length === 0) {
+        const fallback = await tryGdeltNews();
+        if (fallback.length > 0) articles = fallback;
+      }
+      const deduped = dedupeNews(articles);
+      const diversified = diversifyNewsByRegion(deduped).map((a, i) => ({ ...a, id: i }));
+      setNews(diversified);
       setLastUpdated(new Date());
       setError(null);
     } catch (err) {
@@ -341,8 +453,12 @@ const useLiveNews = () => {
       else setError(err.message);
       try {
         const fallback = await tryGdeltNews();
-        if (fallback.length > 0) { setNews(fallback); setLastUpdated(new Date()); }
-        else setNews(DEMO_NEWS);
+        if (fallback.length > 0) {
+          const deduped = dedupeNews(fallback);
+          const diversified = diversifyNewsByRegion(deduped).map((a, i) => ({ ...a, id: i }));
+          setNews(diversified);
+          setLastUpdated(new Date());
+        } else setNews(DEMO_NEWS);
       } catch (_) { setNews(DEMO_NEWS); setLastUpdated(new Date()); }
     } finally {
       setLoading(false);
@@ -371,9 +487,8 @@ const useGdeltMap = () => {
           .filter(f => f.geometry?.coordinates?.length === 2 && f.properties?.name)
           .map((f, i) => {
             const [lon, lat] = f.geometry.coordinates;
-            const { cx, cy } = geoToSVG(lon, lat);
             return {
-              id: i, cx, cy,
+              id: i, lon, lat,
               label: (f.properties.name || "").split(",")[0].toUpperCase().slice(0, 12),
               loc: f.properties.name || "Unknown",
               detail: (f.properties.name || "") + " — conflict event detected",
@@ -381,12 +496,21 @@ const useGdeltMap = () => {
               color: "#ef4444", type: "strike",
             };
           })
-          .filter(e => e.cx > 30 && e.cx < 770 && e.cy > 10 && e.cy < 470)
-          .filter((e, i, arr) => arr.findIndex(o => Math.abs(o.cx - e.cx) < 18 && Math.abs(o.cy - e.cy) < 18) === i)
+          .filter(e => {
+            const [cx, cy] = projectPoint(e.lon, e.lat);
+            return cx > 30 && cx < 770 && cy > 10 && cy < 470;
+          })
+          .filter((e, i, arr) => {
+            const [cx, cy] = projectPoint(e.lon, e.lat);
+            return arr.findIndex(o => {
+              const [ox, oy] = projectPoint(o.lon, o.lat);
+              return Math.abs(ox - cx) < 18 && Math.abs(oy - cy) < 18;
+            }) === i;
+          })
           .slice(0, 14);
 
-        const withDubai = pts.filter(p => p.loc !== "Dubai").concat([{
-          id: "dubai", cx: 548, cy: 327, type: "safe", label: "DUBAI",
+        const withDubai = pts.filter(p => !/dubai|uae|emirates/i.test(p.loc)).concat([{
+          id: "dubai", lon: 55.27, lat: 25.20, type: "safe", label: "DUBAI",
           loc: "Dubai, UAE", detail: "No incidents reported — Secure", color: "#22c55e", url: "#",
         }]);
 
@@ -418,40 +542,59 @@ const useClaudeSummary = (news) => {
     setLoading(true);
     setError(null);
     try {
+      const MILITARY_CONFLICT_RE = /missile|strike|attack|explosion|war|conflict|military|troop|defense|ballistic|rocket|blast|bomb|combat|invasion|evacuation|travel advisory|terrorism|unrest|political|strategy|iran|iraq|kuwait|yemen|syria|hormuz|gulf|uae|dubai|middle east|air strike|airstrike/i;
+      const EXCLUDE_FINANCE_RE = /oil|crude|petrol|brent|wti|barrel|opec|edible oil|oilmeals|oil sector|oil industry|commodit|commodity|stock|share|market|equity|nasdaq|s&p|dow|trading|invest|currency|forex|inflation|earnings|revenue|profit|dividend|ipo|billionaire|hedge fund|gold (surge|price|rally)|silver price|commodity price|rs \d|rupee|perfect time to (invest|buy|sell)|sector turn|cautious amid|agri|agricultur|food price|supply chain|import.*export|price (of|per)|pricing/i;
       const safetyRelevant = articles.filter(a => {
-        const t = `${a.title} ${a.summary || ""}`.toLowerCase();
-        if (/oil|crude|petrol|brent|wti|barrel|opec/i.test(t)) return false;
-        if (/stock|share|market|equity|nasdaq|s&p|dow|trading|invest|currency|forex|inflation/i.test(t)) return false;
-        if (/earnings|revenue|profit|dividend|ipo|billionaire|hedge fund/i.test(t)) return false;
-        if (/gold surge|gold price|silver price|commodity price|rs \d|rupee|perfect time to (invest|buy|sell)/i.test(t)) return false;
+        const t = `${a.title} ${a.summary || ""}`;
+        if (!isEnglishContent(a.title)) return false;
+        if (!isEnglishSource(a.source || a.url || "")) return false;
+        if (EXCLUDE_FINANCE_RE.test(t)) return false;
+        if (!MILITARY_CONFLICT_RE.test(t)) return false;
         return true;
       });
-      const toUse = safetyRelevant.length > 0 ? safetyRelevant : articles;
-      const headlines = toUse.slice(0, 14).map((a, i) => `${i + 1}. [${a.source}] ${a.title}`).join("\n");
+      const toUse = safetyRelevant;
+      if (toUse.length === 0) {
+        setBullets([]);
+        setLoading(false);
+        return;
+      }
+      const articlesWithSummary = toUse.slice(0, 14).map((a, i) => ({
+        index: i + 1,
+        source: a.source,
+        title: a.title,
+        summary: (a.summary || "").slice(0, 250),
+      }));
+      const inputText = articlesWithSummary.map(a =>
+        `${a.index}. [${a.source}] ${a.title}${a.summary ? `\n   ${a.summary}` : ""}`
+      ).join("\n\n");
 
+      const headers = { "Content-Type": "application/json", "anthropic-version": "2023-06-01" };
+      if (CONFIG.ANTHROPIC_API_KEY) headers["x-api-key"] = CONFIG.ANTHROPIC_API_KEY;
+      if (typeof window !== "undefined") headers["anthropic-dangerous-direct-browser-access"] = "true";
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
-          max_tokens: 1500,
+          max_tokens: 2000,
           system: `You are a conflict analyst producing LIVE safety briefings for Dubai and Middle East residents.
 
 ## Your task
-Summarize the war, conflict, and security situation in the Middle East region. Focus on live updates relevant to civilian safety.
+Summarize the war, conflict, and security situation in the Middle East region as bullet points. Focus ONLY on military status, strategy, and political conflict. For each article, write exactly ONE concise line.
 
 ## Rules — follow strictly
-1. INCLUDE: Armed conflict, missile strikes, attacks, military tensions, evacuations, travel advisories, terrorism, civil unrest, regional instability, UAE/Dubai safety impact.
-2. EXCLUDE: Finance, oil prices, stock markets, gold/commodity prices, currency, investments, earnings, GDP, economics. If a headline is mainly about markets/finance/oil even if it mentions war, skip it.
-3. Only include news directly related to the safety situation in the Middle East (Gulf, Levant, Iran, Iraq, Yemen, etc.). Skip purely geopolitical analysis or opinion unless it affects immediate safety.
-4. Output 5–7 bullets. Each bullet: one complete, grammatically correct sentence (approx 15–25 words). Never cut off mid-word or mid-phrase—every bullet must read as a finished thought. Factual, no filler. Wrap the key phrase in **double asterisks**.
+1. INCLUDE ONLY: Military conflicts, missile/strike activity, attacks, military strategy announcements, troop movements, defense policy, evacuations, travel advisories, terrorism, civil unrest, regional security, political tensions. Focus on military status and political conflict—what affects civilian safety. NO finance, NO markets.
+2. EXCLUDE ALWAYS: Oil (any kind), oil sector, oilmeals, finance, stock markets, gold/commodity prices, currency, investments, business sectors, agriculture/food prices, supply chains, pricing. If an article mentions "X sector cautious" or "markets/react" or business/economic impact—SKIP IT entirely.
+3. Each bullet = exactly ONE line. One short sentence only (~15–20 words max). Base on the article—do not invent. Wrap the key phrase in **double asterisks**.
+4. Output 5–7 bullets. One article per bullet. Single sentence per bullet. Do NOT repeat the same story—if two articles cover the same event, include only ONE bullet for it.
 5. Return ONLY a raw JSON array. No markdown, no preamble.
+6. Write ALL summaries in English only. No other languages.
 
 ## Output format (each object)
-- "text": string (complete sentence with **bold** key phrase—must not end abruptly)
+- "text": string (ONE line, one sentence, ~15–20 words max, with **bold** key phrase)
 - "severity": "high" | "medium" | "low"
-- "articleIndex": 1-based index of the headline (1–14)`,
-          messages: [{ role: "user", content: `Headlines (numbered 1–14). Generate the safety briefing. EXCLUDE finance, oil, markets. Write complete sentences only—no truncated bullets.\n\n${headlines}\n\nGenerate the JSON briefing now.` }],
+- "articleIndex": 1-based index of the article (1–14)`,
+          messages: [{ role: "user", content: `Articles (numbered 1–14). Generate the safety briefing in English only. Each bullet = ONE line only (one short sentence, ~15–20 words max). EXCLUDE: oil, gold, finance, commodities. INCLUDE ONLY: military status, strategy, political conflict. Do NOT include two bullets about the same news story. Write all output in English.\n\n${inputText}\n\nGenerate the JSON briefing now.` }],
         }),
       });
 
@@ -459,10 +602,24 @@ Summarize the war, conflict, and security situation in the Middle East region. F
       const data = await res.json();
       const raw = data.content?.[0]?.text || "[]";
       const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
-      setBullets(parsed.map(b => ({ ...b, news: toUse[Math.max(0, (b.articleIndex || 1) - 1)] })));
+      const withNews = parsed.map(b => ({ ...b, news: toUse[Math.max(0, (b.articleIndex || 1) - 1)] }));
+      setBullets(dedupeBullets(withNews));
     } catch (err) {
       setError(err.message);
-      setBullets(articles.slice(0, 6).map(a => ({ text: a.title.slice(0, 85), severity: a.severity, news: a })));
+      // Prefer conflict-related headlines; if AI credits low, fall back to any news headlines
+      const safeForFallback = articles.filter(a => {
+        const t = `${a.title} ${a.summary || ""}`;
+        if (/oil|crude|petrol|brent|commodit|stock|share|market|equity|trading|currency|forex|gold price|revenue|profit|dividend/i.test(t)) return false;
+        if (/missile|strike|attack|explosion|war|conflict|military|troop|ballistic|iran|iraq|kuwait|hormuz|middle east/i.test(t)) return true;
+        return false;
+      });
+      const fallbackArticles = safeForFallback.length > 0 ? safeForFallback : articles.filter(a => {
+        const t = `${a.title} ${a.summary || ""}`;
+        return !/oil|crude|petrol|brent|commodit|stock|share|market|equity|trading|currency|forex/i.test(t);
+      });
+      const oneLine = (s) => (s.length > 120 ? s.slice(0, 117).replace(/\s+\S*$/, "") + "…" : s);
+      const fallbackBullets = fallbackArticles.slice(0, 8).map(a => ({ text: oneLine([a.title, a.summary].filter(Boolean).join(" ")), severity: a.severity, news: a }));
+      setBullets(dedupeBullets(fallbackBullets));
     } finally {
       setLoading(false);
     }
@@ -520,12 +677,12 @@ const NewsCard = ({ item, compact = false }) => (
 
 const NewsSquareCard = ({ item }) => (
   <a href={item.url} target="_blank" rel="noopener noreferrer"
-    className="group flex-shrink-0 w-[140px] h-[140px] snap-center rounded-xl border border-slate-200 bg-white hover:bg-slate-50 hover:border-slate-300 shadow-sm transition-all flex flex-col p-3 overflow-hidden">
-    <div className="flex items-center gap-1.5 flex-wrap shrink-0">
-      <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider truncate max-w-full">{item.source}</span>
-      <span className="text-[10px] text-slate-400 shrink-0">{item.time}</span>
+    className="group flex-shrink-0 w-[200px] h-[140px] snap-center rounded-xl border border-slate-200 bg-white hover:bg-slate-50 hover:border-slate-300 shadow-sm transition-all flex flex-col p-3 overflow-hidden">
+    <div className="flex items-center gap-2 shrink-0 flex-wrap">
+      <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider truncate max-w-full shrink-0">{item.source}</span>
+      <SeverityBadge level={item.severity}/>
     </div>
-    <div className="shrink-0 mt-0.5 self-start"><SeverityBadge level={item.severity}/></div>
+    <span className="text-[10px] text-slate-400 shrink-0 mt-0.5 block">{item.time}</span>
     <p className="text-xs font-semibold text-slate-900 leading-snug line-clamp-3 flex-1 min-h-0 mt-1">{item.title}</p>
     <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-blue-600 group-hover:text-blue-700 mt-auto shrink-0">
       Read full story
@@ -534,21 +691,40 @@ const NewsSquareCard = ({ item }) => (
   </a>
 );
 
-const AISummaryPanel = ({ bullets, loading, error, lastUpdated, onRegenerate }) => (
+const MISSILE_STRIKE_RE = /missile|ballistic|rocket|strike|explosion|blast|intercept|fired|launched/i;
+const filterBullets = (bullets, filter) => {
+  if (!filter) return bullets;
+  if (filter === "missile") return bullets.filter(b => MISSILE_STRIKE_RE.test(b.text) || (b.news && MISSILE_STRIKE_RE.test(`${b.news.title || ""} ${b.news.summary || ""}`)));
+  if (filter === "high") return bullets.filter(b => b.severity === "high");
+  if (filter === "medium") return bullets.filter(b => b.severity === "medium");
+  return bullets;
+};
+
+const AISummaryPanel = ({ bullets, loading, error, lastUpdated, onRegenerate, bulletFilter, onClearFilter, hasNews = false }) => {
+  const filteredBullets = filterBullets(bullets, bulletFilter);
+  const filterBadge = bulletFilter === "missile" ? { label: "🎯 Missile/strike", style: "bg-red-100 text-red-700 border-red-200" } : bulletFilter === "high" ? { label: "🔴 High-severity", style: "bg-orange-100 text-orange-700 border-orange-200" } : bulletFilter === "medium" ? { label: "🟡 Developing", style: "bg-amber-100 text-amber-700 border-amber-200" } : null;
+  return (
   <Card className="border-blue-100 bg-gradient-to-br from-blue-50 to-white overflow-visible">
     <CardHeader className="pb-2">
       <div className="flex items-center gap-2 flex-wrap">
-        <div className="flex items-center gap-1.5">
-          <div className="w-5 h-5 rounded-full bg-blue-600 flex items-center justify-center">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="white"><path d="M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16zm-1-5h2v2h-2zm0-8h2v6h-2z"/></svg>
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-1.5">
+            <CardTitle className="text-blue-900 normal-case text-lg font-semibold flex items-center justify-center gap-4">
+              Latest News
+              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-green-600">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"/>
+                Live
+              </span>
+            </CardTitle>
           </div>
-          <CardTitle className="text-blue-900 normal-case text-sm font-semibold flex items-center gap-2">
-            Live News
-            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-green-600">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"/>
-              Live
+          {filterBadge && onClearFilter && (
+            <span className={cn("inline-flex items-center gap-1 w-fit rounded-full px-2.5 py-0.5 text-[10px] font-medium border", filterBadge.style)}>
+              {filterBadge.label}
+              <button onClick={onClearFilter} className="ml-0.5 -mr-0.5 p-0.5 rounded-full hover:bg-black/10 transition-colors" aria-label="Clear filter">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
             </span>
-          </CardTitle>
+          )}
         </div>
         <div className="ml-auto flex items-center gap-2">
           {lastUpdated && <span className="text-[10px] text-blue-500">{formatTimeAgo(lastUpdated.toISOString())}</span>}
@@ -564,20 +740,22 @@ const AISummaryPanel = ({ bullets, loading, error, lastUpdated, onRegenerate }) 
       {loading && bullets.length === 0 ? (
         <div className="flex items-center gap-3 py-4 text-sm text-blue-500"><Spinner size={16}/> Generating briefing from live news…</div>
       ) : bullets.length === 0 ? (
-        <p className="text-sm text-slate-400 py-2">Waiting for news data… Add your NewsAPI key to enable live summaries.</p>
+        <p className="text-sm text-slate-400 py-2">{hasNews ? "No military or conflict-related news in this batch. Finance, oil, gold, and commodity news are excluded—only military status and political conflict." : "Waiting for news data… Add your NewsAPI key to enable live summaries."}</p>
       ) : (
         <ul className="space-y-2.5 min-w-0 w-full overflow-visible">
-          {bullets.map((b, i) => (
+          {filteredBullets.length === 0 && filterBadge ? <p className="text-sm text-slate-400 py-2">No {filterBadge.label.replace(/^[^\s]+\s/, "")} items. {onClearFilter && <button onClick={onClearFilter} className="text-blue-600 hover:underline">Clear filter</button>}</p> : filteredBullets.map((b, i) => (
             <li key={i} className="flex items-start gap-2.5 group/item min-w-0 w-full">
               <div className={cn("mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0",
                 b.severity === "high" ? "bg-red-400" : b.severity === "medium" ? "bg-amber-400" : "bg-blue-400")}/>
-              <div className="flex-1 min-w-0 overflow-visible">
-                <p className="text-sm text-slate-700 leading-relaxed break-words whitespace-normal">{b.text}</p>
-                {b.news?.url && b.news?.source && (
-                  <a href={b.news.url} target="_blank" rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium border border-slate-200 text-blue-600 bg-blue-100 hover:bg-slate-50 hover:border-slate-300 transition-colors mt-1.5 w-fit"
-                    onClick={e=>e.stopPropagation()}>{b.news.source}<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg></a>
-                )}
+              <div className="flex-1 min-w-0 overflow-visible w-full">
+                <span className="text-sm text-slate-700 leading-relaxed break-words whitespace-normal block overflow-visible">
+                  {b.text}
+                  {b.news?.url && b.news?.source && (
+                    <> · <a href={b.news.url} target="_blank" rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium border border-slate-200 text-blue-600 bg-blue-100 hover:bg-slate-50 hover:border-slate-300 transition-colors"
+                      onClick={e=>e.stopPropagation()}>{b.news.source}<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg></a></>
+                  )}
+                </span>
               </div>
               {b.news?.url && (
                 <a href={b.news.url} target="_blank" rel="noopener noreferrer"
@@ -589,8 +767,8 @@ const AISummaryPanel = ({ bullets, loading, error, lastUpdated, onRegenerate }) 
           ))}
         </ul>
       )}
-      {bullets.length > 0 && (() => {
-        const newsItems = [...new Map(bullets.filter(b => b.news?.url).map(b => [b.news.url, b.news])).values()];
+      {filteredBullets.length > 0 && (() => {
+        const newsItems = [...new Map(filteredBullets.filter(b => b.news?.url).map(b => [b.news.url, b.news])).values()];
         if (newsItems.length === 0) return null;
         return (
           <div className="mt-4 pt-4 border-t border-blue-100/50">
@@ -608,7 +786,11 @@ const AISummaryPanel = ({ bullets, loading, error, lastUpdated, onRegenerate }) 
       )}
     </CardContent>
   </Card>
-);
+  );
+};
+
+// Middle East country IDs (ISO 3166-1 numeric / M49)
+const MIDDLE_EAST_IDS = new Set([4, 48, 196, 275, 364, 368, 376, 400, 414, 422, 512, 586, 634, 682, 760, 784, 792, 818, 887, "4", "48", "196", "275", "364", "368", "376", "400", "414", "422", "512", "586", "634", "682", "760", "784", "792", "818", "887"]);
 
 // ─────────────────────────────────────────────────────────────
 //  Interactive Strike Map
@@ -618,10 +800,25 @@ const StrikeMap = ({ events, loading }) => {
   const [tr, setTr] = useState({ x: 0, y: 0, scale: 1 });
   const [dragging, setDragging] = useState(false);
   const [tooltip, setTooltip] = useState(null);
+  const [geography, setGeography] = useState(null);
   const dragStart = useRef(null);
   const lastTr = useRef({ x: 0, y: 0 });
   const lastTouches = useRef(null);
   const MIN = 0.5, MAX = 6;
+
+  useEffect(() => {
+    fetch("https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json")
+      .then(r => r.json())
+      .then(topology => {
+        const countries = feature(topology, topology.objects.countries);
+        const filtered = {
+          type: "FeatureCollection",
+          features: countries.features.filter(f => MIDDLE_EAST_IDS.has(f.id) || MIDDLE_EAST_IDS.has(String(f.id)))
+        };
+        setGeography(filtered);
+      })
+      .catch(() => setGeography(null));
+  }, []);
 
   const clamp = (x, y, s) => ({
     x: Math.min(560, Math.max(-800 * (s - 0.3), x)),
@@ -668,7 +865,58 @@ const StrikeMap = ({ events, loading }) => {
 
   const allEvents = events.some(e => e.type === "safe")
     ? events
-    : [...events, { id: "dubai", cx: 548, cy: 327, type: "safe", label: "DUBAI", loc: "Dubai, UAE", detail: "No incidents reported — Secure", color: "#22c55e", url: "#" }];
+    : [...events, { id: "dubai", lon: 55.27, lat: 25.20, type: "safe", label: "DUBAI", loc: "Dubai, UAE", detail: "No incidents reported — Secure", color: "#22c55e", url: "#" }];
+
+  const pathGenerator = geoPath().projection(mapProjection);
+
+  // Resolve event position (support both lon/lat and legacy cx,cy)
+  const getEventPos = (inc) => {
+    if (inc.lon != null && inc.lat != null) return projectPoint(inc.lon, inc.lat);
+    return [inc.cx ?? 400, inc.cy ?? 280];
+  };
+
+  // Map event loc → country name (TopoJSON properties.name)
+  const locToCountry = (loc) => {
+    const s = (loc || "").toLowerCase();
+    if (/iraq|basra|baghdad|mosul/i.test(s)) return "Iraq";
+    if (/iran|tehran|isfahan|hormuz|strait/i.test(s)) return "Iran";
+    if (/kuwait/i.test(s)) return "Kuwait";
+    if (/uae|dubai|abu dhabi|emirates|sharjah/i.test(s)) return "United Arab Emirates";
+    if (/saudi|riyadh|jeddah|mecca/i.test(s)) return "Saudi Arabia";
+    if (/oman|muscat/i.test(s)) return "Oman";
+    if (/yemen|aden|sana/i.test(s)) return "Yemen";
+    if (/qatar|doha/i.test(s)) return "Qatar";
+    if (/bahrain/i.test(s)) return "Bahrain";
+    if (/jordan|amman/i.test(s)) return "Jordan";
+    if (/israel|tel aviv|jerusalem|gaza/i.test(s)) return "Israel";
+    if (/syria|damascus/i.test(s)) return "Syria";
+    if (/lebanon|beirut/i.test(s)) return "Lebanon";
+    if (/egypt|cairo|sinai|alexandria/i.test(s)) return "Egypt";
+    if (/turkey|ankara|istanbul/i.test(s)) return "Turkey";
+    if (/cyprus/i.test(s)) return "Cyprus";
+    if (/palestine|west bank|gaza/i.test(s)) return "Palestine";
+    if (/pakistan|karachi|islamabad/i.test(s)) return "Pakistan";
+    if (/afghanistan|kabul/i.test(s)) return "Afghanistan";
+    return null;
+  };
+
+  const severityRank = { strike: 3, warning: 2, safe: 1 };
+  const countryStatus = {};
+  allEvents.forEach(inc => {
+    const country = locToCountry(inc.loc);
+    if (country && (!countryStatus[country] || severityRank[inc.type] > severityRank[countryStatus[country].type])) {
+      countryStatus[country] = { type: inc.type, color: inc.color };
+    }
+  });
+  const statusFill = (name) => {
+    const s = countryStatus[name];
+    if (s?.type === "strike") return "rgba(254,226,226,0.6)";
+    if (s?.type === "warning") return "rgba(254,243,199,0.6)";
+    if (s?.type === "safe") return "rgba(220,252,231,0.6)";
+    return "rgba(241,245,249,0.85)";
+  };
+
+  const MIN_LABEL_AREA = 4000;
 
   return (
     <div ref={containerRef}
@@ -694,43 +942,75 @@ const StrikeMap = ({ events, loading }) => {
         </defs>
 
         <rect width="800" height="480" fill="url(#g2)"/>
-        <polygon points="500,80 560,70 620,90 650,130 640,180 600,210 560,220 520,200 490,170 480,130" fill="rgba(254,226,226,0.5)" stroke="#fca5a5" strokeWidth="1.2" strokeDasharray="5,3"/>
-        <text x="565" y="150" fontFamily="DM Mono,monospace" fontSize="10" fill="#ef4444" textAnchor="middle" fontWeight="600">IRAN</text>
-        <polygon points="430,130 480,130 490,170 480,230 450,260 410,250 390,220 400,180 410,150" fill="rgba(254,243,199,0.5)" stroke="#fcd34d" strokeWidth="1.2" strokeDasharray="5,3"/>
-        <text x="440" y="195" fontFamily="DM Mono,monospace" fontSize="10" fill="#b45309" textAnchor="middle" fontWeight="600">IRAQ</text>
-        <polygon points="470,260 500,255 510,280 490,295 465,285" fill="rgba(254,243,199,0.5)" stroke="#fcd34d" strokeWidth="1" strokeDasharray="4,3"/>
-        <text x="488" y="277" fontFamily="DM Mono,monospace" fontSize="8" fill="#b45309" textAnchor="middle">KW</text>
-        <polygon points="390,220 450,260 465,285 510,280 520,320 500,380 450,400 370,390 330,340 320,290 350,250" fill="rgba(241,245,249,0.7)" stroke="#cbd5e1" strokeWidth="1" strokeDasharray="4,3"/>
-        <text x="415" y="325" fontFamily="DM Mono,monospace" fontSize="10" fill="#94a3b8" textAnchor="middle">SAUDI ARABIA</text>
-        <polygon points="520,320 560,300 580,310 570,340 530,350 510,340" fill="rgba(220,252,231,0.7)" stroke="#86efac" strokeWidth="1.5"/>
-        <text x="548" y="332" fontFamily="DM Mono,monospace" fontSize="8" fill="#16a34a" textAnchor="middle" fontWeight="700">UAE</text>
-        <polygon points="570,340 620,320 650,350 640,400 600,420 570,400 560,370" fill="rgba(241,245,249,0.7)" stroke="#cbd5e1" strokeWidth="1" strokeDasharray="4,3"/>
-        <text x="608" y="373" fontFamily="DM Mono,monospace" fontSize="9" fill="#94a3b8" textAnchor="middle">OMAN</text>
-        <polygon points="320,100 370,90 390,120 380,160 350,170 310,150" fill="rgba(241,245,249,0.6)" stroke="#cbd5e1" strokeWidth="0.8" strokeDasharray="4,3"/>
-        <text x="350" y="130" fontFamily="DM Mono,monospace" fontSize="8" fill="#94a3b8" textAnchor="middle">JORDAN</text>
-        <polygon points="280,30 400,20 430,60 400,80 360,70 300,75 260,60" fill="rgba(241,245,249,0.5)" stroke="#cbd5e1" strokeWidth="0.8" strokeDasharray="4,3"/>
-        <text x="355" y="52" fontFamily="DM Mono,monospace" fontSize="8" fill="#94a3b8" textAnchor="middle">TURKEY</text>
-        <text x="538" y="281" fontFamily="DM Mono,monospace" fontSize="7.5" fill="#93c5fd" textAnchor="middle" fontStyle="italic">PERSIAN GULF</text>
+        {geography ? (
+          <g>
+            {geography.features.map((d, i) => {
+              const p = pathGenerator(d);
+              if (!p) return null;
+              const name = d.properties?.name || "";
+              const bounds = pathGenerator.bounds(d);
+              const area = (bounds[1][0] - bounds[0][0]) * (bounds[1][1] - bounds[0][1]);
+              const showLabel = area >= MIN_LABEL_AREA;
+              let centroid;
+              try { centroid = pathGenerator.centroid(d); } catch (_) { centroid = null; }
+              return (
+                <g key={i}>
+                  <path d={p} fill={statusFill(name)} stroke="#cbd5e1" strokeWidth="0.8"/>
+                  {showLabel && centroid && (
+                    <text x={centroid[0]} y={centroid[1]} fontFamily="DM Mono,monospace" fontSize={area > 15000 ? 9 : 7} fill="#64748b" textAnchor="middle" dominantBaseline="middle" style={{ pointerEvents: "none" }}>
+                      {name.length > 12 ? name.replace(/\s+(of|the)\s+/gi, " ").slice(0, 14) : name}
+                    </text>
+                  )}
+                </g>
+              );
+            })}
+          </g>
+        ) : (
+          <>
+            <polygon points="500,80 560,70 620,90 650,130 640,180 600,210 560,220 520,200 490,170 480,130" fill="rgba(254,226,226,0.5)" stroke="#fca5a5" strokeWidth="1.2" strokeDasharray="5,3"/>
+            <polygon points="430,130 480,130 490,170 480,230 450,260 410,250 390,220 400,180 410,150" fill="rgba(254,243,199,0.5)" stroke="#fcd34d" strokeWidth="1.2" strokeDasharray="5,3"/>
+            <polygon points="470,260 500,255 510,280 490,295 465,285" fill="rgba(254,243,199,0.5)" stroke="#fcd34d" strokeWidth="1" strokeDasharray="4,3"/>
+            <polygon points="390,220 450,260 465,285 510,280 520,320 500,380 450,400 370,390 330,340 320,290 350,250" fill="rgba(241,245,249,0.7)" stroke="#cbd5e1" strokeWidth="1" strokeDasharray="4,3"/>
+            <polygon points="520,320 560,300 580,310 570,340 530,350 510,340" fill="rgba(220,252,231,0.7)" stroke="#86efac" strokeWidth="1.5"/>
+            <polygon points="570,340 620,320 650,350 640,400 600,420 570,400 560,370" fill="rgba(241,245,249,0.7)" stroke="#cbd5e1" strokeWidth="1" strokeDasharray="4,3"/>
+            <polygon points="320,100 370,90 390,120 380,160 350,170 310,150" fill="rgba(241,245,249,0.6)" stroke="#cbd5e1" strokeWidth="0.8" strokeDasharray="4,3"/>
+            <polygon points="280,30 400,20 430,60 400,80 360,70 300,75 260,60" fill="rgba(241,245,249,0.5)" stroke="#cbd5e1" strokeWidth="0.8" strokeDasharray="4,3"/>
+          </>
+        )}
 
-        {allEvents.map(inc => (
+        {/* Status dots rendered first so country/city labels draw on top */}
+        {allEvents.map(inc => {
+          const [cx, cy] = getEventPos(inc);
+          return (
           <g key={inc.id} data-marker="true" style={{ cursor: "pointer" }}
             onClick={e => { e.stopPropagation(); setTooltip(t => t?.id === inc.id ? null : inc); }}>
-            <circle cx={inc.cx} cy={inc.cy}
+            <circle cx={cx} cy={cy}
               r={inc.type === "strike" ? 28 : inc.type === "warning" ? 22 : 18}
-              fill={inc.type === "strike" ? "url(#rR)" : inc.type === "warning" ? "url(#rA)" : "url(#rG)"}>
+              fill={inc.type === "strike" ? "url(#rR)" : inc.type === "warning" ? "url(#rA)" : "url(#rG)"}
+              style={{ width: "fit-content" }}>
               {inc.type !== "safe" && <>
                 <animate attributeName="r" values={inc.type === "strike" ? "18;34;18" : "14;26;14"} dur={inc.type === "strike" ? "3s" : "4s"} repeatCount="indefinite"/>
                 <animate attributeName="opacity" values="1;0.2;1" dur={inc.type === "strike" ? "3s" : "4s"} repeatCount="indefinite"/>
               </>}
             </circle>
-            <circle cx={inc.cx} cy={inc.cy} r={inc.type === "safe" ? 6 : 7}
-              fill={inc.color} filter={inc.type === "strike" ? "url(#fR)" : inc.type === "safe" ? "url(#fG)" : "none"}/>
-            <text x={inc.cx} y={inc.cy + 16} fontFamily="DM Mono,monospace" fontSize="8.5"
-              fill={inc.color} textAnchor="middle" fontWeight="700" style={{ pointerEvents: "none" }}>
-              {inc.label?.slice(0, 10)}
+            <circle cx={cx} cy={cy} r={inc.type === "safe" ? 5 : 7}
+              fill={inc.color} filter={inc.type === "strike" ? "url(#fR)" : "none"}
+              style={{ width: "fit-content" }}/>
+          </g>
+        );})}
+
+        {allEvents.map(inc => {
+          const [cx, cy] = getEventPos(inc);
+          return (
+          <g key={`label-${inc.id}`} data-marker="true" style={{ cursor: "pointer" }}
+            onClick={e => { e.stopPropagation(); setTooltip(t => t?.id === inc.id ? null : inc); }}>
+            <circle cx={cx} cy={cy} r={32} fill="transparent"/>
+            <text x={cx} y={cy + 24} fontFamily="DM Mono,monospace" fontSize="8.5"
+              fill={inc.color} textAnchor="middle" fontWeight="700" style={{ pointerEvents: "none", width: "fit-content" }}>
+              {inc.loc?.slice(0, 18) || inc.label?.slice(0, 10)}
             </text>
           </g>
-        ))}
+        );})}
 
         <g transform="translate(28,458)">
           <rect x="-4" y="-14" width="96" height="20" rx="3" fill="rgba(255,255,255,0.92)"/>
@@ -841,7 +1121,7 @@ const SetupBanner = ({ hasKey }) => hasKey ? null : (
   <Alert variant="warning" className="mb-4">
     <AlertTitle>⚙️ Add your NewsAPI key for live news articles</AlertTitle>
     <AlertDescription>
-      <span className="block mt-1">1. Register free at <a href="https://newsapi.org/register" target="_blank" className="underline font-semibold text-amber-900">newsapi.org/register</a> · 2. Copy your key · 3. Paste it into <code className="bg-amber-100 px-1 rounded text-[11px]">CONFIG.NEWS_API_KEY</code> at top of file</span>
+      <span className="block mt-1">1. Register free at <a href="https://newsapi.org/register" target="_blank" className="underline font-semibold text-amber-900">newsapi.org/register</a> · 2. Copy your key · 3. Add <code className="bg-amber-100 px-1 rounded text-[11px]">VITE_NEWS_API_KEY=your_key</code> to <code className="bg-amber-100 px-1 rounded text-[11px]">.env</code></span>
       <span className="block mt-1.5 text-amber-700 text-xs">✅ Map data (GDELT) and AI summaries (Claude) are already live — no additional keys needed.</span>
     </AlertDescription>
   </Alert>
@@ -854,13 +1134,15 @@ export default function SafeDXB() {
   const [tab, setTab] = useState("dashboard");
   const [time, setTime] = useState("");
   const [filter, setFilter] = useState("all");
+  const [liveNewsFilter, setLiveNewsFilter] = useState(null);
+  const liveNewsRef = useRef(null);
 
   const { news, loading: nLoading, error: nError, lastUpdated, refetch } = useLiveNews();
   const { events: mapEvents, loading: mLoading } = useGdeltMap();
   const { bullets, loading: aiLoading, error: aiError, regenerate } = useClaudeSummary(news);
   const userLoc = useUserLocation();
 
-  const hasKey = CONFIG.NEWS_API_KEY !== "YOUR_NEWSAPI_KEY";
+  const hasKey = !!CONFIG.NEWS_API_KEY;
 
   useEffect(() => {
     const t = () => setTime(new Date().toLocaleTimeString("en-US", { timeZone:"Asia/Dubai", hour12:false, hour:"2-digit", minute:"2-digit", second:"2-digit" }));
@@ -916,7 +1198,7 @@ export default function SafeDXB() {
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
         *{box-sizing:border-box}body{margin:0}
         .ticker-wrap{overflow:hidden}
-        .ticker-inner{display:flex;animation:ticker 55s linear infinite;white-space:nowrap}
+        .ticker-inner{display:flex;animation:ticker 12s linear infinite;white-space:nowrap}
         @keyframes ticker{from{transform:translateX(0)}to{transform:translateX(-50%)}}
         @keyframes spin{to{transform:rotate(360deg)}}
         .animate-spin{animation:spin 1s linear infinite}
@@ -937,16 +1219,10 @@ export default function SafeDXB() {
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
             Dubai {time} GST+4
           </div>
-          <div className="flex items-center gap-2">
-            {nLoading && <Spinner size={14}/>}
-            <button onClick={refetch} className="text-xs text-slate-500 hover:text-slate-700 border border-slate-200 rounded px-2 py-1 flex items-center gap-1 transition-colors cursor-pointer bg-white">
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>Refresh
-            </button>
-            <Badge variant="destructive" className="gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"/>
-              {highCount > 0 ? `${highCount} High Alert${highCount > 1 ? "s" : ""}` : "Monitoring"}
-            </Badge>
-          </div>
+          <a href="tel:999" className="inline-flex items-center gap-2 rounded-lg bg-red-600 hover:bg-red-700 text-white px-4 py-2 text-sm font-semibold transition-colors shadow-sm cursor-pointer">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81a19.79 19.79 0 01-3.07-8.68A2 2 0 012.18 1h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 8.14a16 16 0 006 6l1.41-1.41a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
+            Emergency 999
+          </a>
         </div>
         {news.length > 0 && (
           <div className="ticker-wrap bg-slate-900 text-white border-t border-slate-700 py-1.5">
@@ -959,22 +1235,28 @@ export default function SafeDXB() {
             </div>
           </div>
         )}
-      </header>
-
-      <div className="bg-white border-b border-slate-200 sticky top-14 z-40">
-        <div className="max-w-screen-xl mx-auto px-6 py-2 overflow-x-auto">
-          <div className="flex gap-6">
-            {TABS.map(t => (
-              <button key={t.id} onClick={() => setTab(t.id)} className={cn("flex items-center gap-1.5 px-3.5 py-2 rounded-md text-sm font-medium whitespace-nowrap transition-all cursor-pointer font-heading",
-                tab===t.id?"bg-slate-900 text-white shadow-sm":"text-slate-600 hover:text-slate-900 hover:bg-slate-100")}>
-                <TabIcon id={t.id}/>
-                {t.label}
-                {t.badge ? <span className={cn("text-[10px] font-bold rounded-full px-1.5 py-0.5 min-w-6 inline-flex items-center justify-center",tab===t.id?"bg-white text-slate-900":"bg-red-500 text-white")}>{t.badge}</span> : null}
-              </button>
-            ))}
+        <div className="bg-white border-b border-slate-200 z-40">
+          <div className="max-w-screen-xl mx-auto pl-6 pr-0 py-2 relative">
+            <div className="overflow-x-auto">
+              <div className="flex gap-1">
+                {TABS.map(t => (
+                  <button key={t.id} onClick={() => setTab(t.id)} className={cn("flex items-center gap-1.5 px-3.5 py-2 rounded-md text-sm font-medium whitespace-nowrap transition-all cursor-pointer font-heading",
+                    tab===t.id?"bg-slate-900 text-white shadow-sm":"text-slate-600 hover:text-slate-900 hover:bg-slate-100")}>
+                    <TabIcon id={t.id}/>
+                    {t.label}
+                    {t.badge ? <span className={cn("text-[10px] font-bold rounded-full px-1.5 py-0.5 min-w-6 inline-flex items-center justify-center",tab===t.id?"bg-white text-slate-900":"bg-red-500 text-white")}>{t.badge}</span> : null}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div
+              className="absolute right-0 top-0 bottom-0 w-12 pointer-events-none z-10"
+              style={{ background: 'linear-gradient(to right, transparent, white)' }}
+              aria-hidden
+            />
           </div>
         </div>
-      </div>
+      </header>
 
       <main className="max-w-screen-xl mx-auto px-6 py-6 fade-up bg-white">
         {tab === "dashboard" && (
@@ -1031,17 +1313,26 @@ export default function SafeDXB() {
                             </div>
                             <p className={cn("text-sm font-semibold mb-1.5", status.color)}>{status.sub}</p>
                             <p className="text-xs text-slate-500 leading-relaxed max-w-lg">{status.desc}</p>
+                            {status.reason && (
+                              <p className="text-xs text-slate-600 mt-2 max-w-lg"><span className="font-medium text-slate-600">Based on: </span><span className="text-slate-500">{status.reason.length > 140 ? status.reason.slice(0, 137) + "…" : status.reason}</span></p>
+                            )}
                           </>
                         )}
                       </div>
                     </div>
                     {!isLoading && (
                       <div className="flex items-center flex-wrap gap-2 pt-4 border-t" style={{ borderColor: `${status.borderColor}60` }}>
-                        {missileCount > 0 && <span className="inline-flex items-center gap-1.5 text-[11px] font-medium bg-red-100 text-red-700 border border-red-200 rounded-full px-3 py-1">🎯 {missileCount} missile/strike report{missileCount > 1 ? "s" : ""}</span>}
-                        {highCount > 0 && <span className="inline-flex items-center gap-1.5 text-[11px] font-medium bg-orange-100 text-orange-700 border border-orange-200 rounded-full px-3 py-1">🔴 {highCount} high-severity alert{highCount > 1 ? "s" : ""}</span>}
-                        {news.filter(n => n.severity === "medium").length > 0 && <span className="inline-flex items-center gap-1.5 text-[11px] font-medium bg-amber-100 text-amber-700 border border-amber-200 rounded-full px-3 py-1">🟡 {news.filter(n => n.severity === "medium").length} developing</span>}
+                        {missileCount > 0 && (
+                          <button onClick={() => { setLiveNewsFilter("missile"); liveNewsRef.current?.scrollIntoView({ behavior: "smooth" }); }} className="inline-flex items-center gap-1.5 text-[11px] font-medium bg-red-100 text-red-700 border border-red-200 rounded-full px-3 py-1 hover:bg-red-200/50 transition-colors cursor-pointer">🎯 {missileCount} missile/strike report{missileCount > 1 ? "s" : ""}</button>
+                        )}
+                        {highCount > 0 && (
+                          <button onClick={() => { setLiveNewsFilter("high"); liveNewsRef.current?.scrollIntoView({ behavior: "smooth" }); }} className="inline-flex items-center gap-1.5 text-[11px] font-medium bg-orange-100 text-orange-700 border border-orange-200 rounded-full px-3 py-1 hover:bg-orange-200/50 transition-colors cursor-pointer">🔴 {highCount} high-severity alert{highCount > 1 ? "s" : ""}</button>
+                        )}
+                        {news.filter(n => n.severity === "medium").length > 0 && (
+                          <button onClick={() => { setLiveNewsFilter("medium"); liveNewsRef.current?.scrollIntoView({ behavior: "smooth" }); }} className="inline-flex items-center gap-1.5 text-[11px] font-medium bg-amber-100 text-amber-700 border border-amber-200 rounded-full px-3 py-1 hover:bg-amber-200/50 transition-colors cursor-pointer">🟡 {news.filter(n => n.severity === "medium").length} developing</button>
+                        )}
                         {missileCount === 0 && highCount === 0 && <span className="inline-flex items-center gap-1.5 text-[11px] font-medium bg-green-100 text-green-700 border border-green-200 rounded-full px-3 py-1">✓ No active threats detected</span>}
-                        {status.action && <button onClick={() => setTab(status.actionLink)} className="inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-4 py-1.5 h-12 rounded-full text-white transition-all hover:opacity-90 cursor-pointer min-w-[220px]" style={{ background: status.pulseColor }}>{status.action}<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg></button>}
+                        {status.action && <span className="basis-full"><button onClick={() => setTab(status.actionLink)} className="inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-4 py-1.5 h-12 rounded-full text-white transition-all hover:opacity-90 cursor-pointer min-w-[220px]" style={{ background: status.pulseColor }}>{status.action}<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg></button></span>}
                       </div>
                     )}
                   </div>
@@ -1049,32 +1340,10 @@ export default function SafeDXB() {
               );
             })()}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="lg:col-span-2 space-y-5 min-w-0">
-                <AISummaryPanel bullets={bullets} loading={aiLoading} error={aiError} lastUpdated={lastUpdated} onRegenerate={regenerate}/>
+              <div ref={liveNewsRef} className="lg:col-span-2 space-y-5 min-w-0">
+                <AISummaryPanel bullets={bullets} loading={aiLoading} error={aiError} lastUpdated={lastUpdated} onRegenerate={regenerate} bulletFilter={liveNewsFilter} onClearFilter={() => setLiveNewsFilter(null)} hasNews={news.length > 0}/>
               </div>
               <div className="space-y-4">
-                <Card>
-                  <CardHeader className="pb-2"><CardTitle>API Status</CardTitle></CardHeader>
-                  <CardContent className="space-y-2">
-                    {[{ name:"NewsAPI", desc:"News articles", ok: hasKey, status: hasKey?"Live":"No key" },{ name:"GDELT", desc:"Map events", ok: !mLoading, status: mLoading?"Loading":"Live" },{ name:"Claude AI", desc:"AI summaries", ok: bullets.length > 0, status: aiLoading?"Generating":bullets.length > 0?"Live":"Waiting" }].map(s => (
-                      <div key={s.name} className="flex items-center justify-between py-1.5 border-b border-slate-50 last:border-0">
-                        <div><p className="text-sm font-medium text-slate-800">{s.name}</p><p className="text-[10px] text-slate-400">{s.desc}</p></div>
-                        <Badge variant={s.ok?"success":"warning"} className="text-[10px]">{s.ok?"●":"○"} {s.status}</Badge>
-                      </div>
-                    ))}
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-2"><CardTitle>Regions in News</CardTitle></CardHeader>
-                  <CardContent className="space-y-1.5">
-                    {nLoading && !news.length ? [...Array(5)].map((_, i) => <div key={i} className="h-6 bg-slate-100 rounded animate-pulse" />) : Object.entries(regionCounts).sort((a, b) => b[1] - a[1]).slice(0, 7).map(([r, c]) => (
-                      <div key={r} className="flex items-center justify-between py-1">
-                        <span className="text-sm text-slate-700">{r}</span>
-                        <Badge variant={r === "UAE" || r === "Dubai" ? "success" : (c >= 3) ? "destructive" : "warning"}>{c} article{(c > 1) ? "s" : ""}</Badge>
-                      </div>
-                    ))}
-                  </CardContent>
-                </Card>
                 <Card>
                   <CardHeader className="pb-2"><CardTitle>Quick Dial</CardTitle></CardHeader>
                   <CardContent className="space-y-2">
@@ -1090,7 +1359,7 @@ export default function SafeDXB() {
             <div className="space-y-3">
               <div className="flex items-center gap-2 flex-wrap">
                 <p className="text-sm font-semibold text-slate-700 mr-1">Filter:</p>
-                {[["all","All","secondary"],["high","High","destructive"],["medium","Medium","warning"],["low","Low","success"]].map(([v,l,variant])=>(<button key={v} onClick={()=>setFilter(v)} className={cn("cursor-pointer transition-opacity h-full min-w-[70px] rounded-full",filter===v?"shadow-none bg-black":"opacity-60 hover:opacity-100")}><Badge variant={variant} className={cn("min-w-[70px] justify-center",filter===v&&variant==="secondary"?"!bg-slate-900 !text-slate-100":"")}>{l}</Badge></button>))}
+                {[["all","All","secondary"],["high","High","destructive"],["medium","Medium","warning"],["low","Low","success"]].map(([v,l,variant])=>(<button key={v} onClick={()=>setFilter(v)} className={cn("cursor-pointer transition-opacity h-full min-w-[70px] rounded-full",filter===v?"shadow-none":"opacity-60 hover:opacity-100")}><Badge variant={variant} className={cn("min-w-[70px] justify-center",filter===v&&variant==="secondary"?"!bg-slate-900 !text-slate-100":"")}>{l}</Badge></button>))}
                 <div className="ml-auto flex items-center gap-2">{nLoading&&<Spinner size={13}/>}<span className="text-xs text-slate-400">{filtered.length} articles</span>{lastUpdated&&<span className="text-xs text-slate-400">· {formatTimeAgo(lastUpdated.toISOString())}</span>}</div>
               </div>
               {nLoading&&!news.length ? [...Array(5)].map((_,i)=><SkeletonCard key={i}/>) : filtered.length===0 ? <div className="text-center py-12 text-slate-400"><p className="text-lg">No articles found</p><p className="text-sm mt-1">{hasKey?"Try a different filter":"Add your NewsAPI key to see live news"}</p></div> : filtered.map(n=><NewsCard key={n.id} item={n}/>)}
@@ -1109,7 +1378,7 @@ export default function SafeDXB() {
                 <Card>
                   <CardHeader className="pb-2"><CardTitle>Live Events</CardTitle></CardHeader>
                   <CardContent className="space-y-2 max-h-96 overflow-y-auto">
-                    {mLoading ? [...Array(4)].map((_,i)=><div key={i} className="h-16 bg-slate-100 rounded-lg animate-pulse"/>) : mapEvents.map(e=>(<div key={e.id} className={cn("rounded-lg border p-3", e.type==="strike"?"border-red-200 bg-red-50":e.type==="warning"?"border-amber-200 bg-amber-50":"border-green-200 bg-green-50")}><div className="flex items-start gap-2"><div className="w-2 h-2 rounded-full mt-1 flex-shrink-0" style={{background:e.color}}/><div className="flex-1 min-w-0"><p className="font-bold text-xs text-slate-900 truncate">{e.loc}</p><p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed line-clamp-2">{e.detail}</p>{e.url&&e.url!=="#"&&<a href={e.url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-600 hover:underline flex items-center gap-0.5 mt-1">Source <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg></a>}</div></div></div>))}
+                    {mLoading ? [...Array(4)].map((_,i)=><div key={i} className="h-16 bg-slate-100 rounded-lg animate-pulse"/>) : mapEvents.map(e=>{const airportStatus=isCityOrCountry(e.loc)?(e.type==="strike"?{text:"Airport closed",cls:"bg-red-100 text-red-800",icon:<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg>}:e.type==="warning"?{text:"Check before travel",cls:"bg-amber-100 text-amber-800",icon:<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>}:{text:"Airport open",cls:"bg-green-100 text-green-800",icon:<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.8 19.2L16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2l-1.8-7.2"/></svg>}):null;return(<div key={e.id} className={cn("rounded-lg border p-3", e.type==="strike"?"border-red-200 bg-red-50":e.type==="warning"?"border-amber-200 bg-amber-50":"border-green-200 bg-green-50")}><div className="flex items-start gap-2 justify-center"><div className="w-2 h-2 rounded-full mt-1 flex-shrink-0" style={{background:e.color}}/><div className="flex-1 min-w-0"><p className="font-bold text-xs text-slate-900 truncate">{e.loc}</p><p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed line-clamp-2">{e.detail}</p>{e.url&&e.url!=="#"&&<a href={e.url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-600 hover:underline flex items-center gap-0.5 mt-1">Source <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg></a>}</div>{airportStatus&&<span className={cn("flex-shrink-0 flex items-center gap-1.5 text-[10px] font-semibold px-2 py-1 rounded-md self-center",airportStatus.cls)}>{airportStatus.icon}{airportStatus.text}</span>}</div></div>);})}
                   </CardContent>
                 </Card>
                 <Card className="bg-blue-50 border-blue-100"><CardContent className="pt-4 pb-4"><p className="font-heading text-xs font-semibold text-blue-800 mb-2">🌐 About GDELT</p><p className="text-xs text-blue-700 leading-relaxed">GDELT monitors global news in real-time and geo-tags conflict events using NLP. Coordinates are approximate. Free, no key needed, updated continuously.</p></CardContent></Card>
