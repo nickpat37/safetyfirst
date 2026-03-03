@@ -68,10 +68,14 @@ const classifySeverity = (text = "") => {
 const extractRegion = (text = "") => {
   const map = [
     ["Dubai","Dubai"],["Abu Dhabi","UAE"],["UAE","UAE"],["Emirates","UAE"],
-    ["Iran","Iran"],["Tehran","Iran"],["Iraq","Iraq"],["Baghdad","Iraq"],["Basra","Iraq"],
-    ["Kuwait","Kuwait"],["Saudi","Saudi Arabia"],["Riyadh","Saudi Arabia"],
-    ["Hormuz","Hormuz Strait"],["Yemen","Yemen"],["Bahrain","Bahrain"],
-    ["Qatar","Qatar"],["Oman","Oman"],["Jordan","Jordan"],["Syria","Syria"],["Lebanon","Lebanon"],
+    ["Israel","Israel"],["Gaza","Gaza"],["West Bank","Palestine"],["Palestine","Palestine"],
+    ["United States","US"],["Washington","US"],[" US ","US"],["US ","US"],
+    ["Iraq","Iraq"],["Baghdad","Iraq"],["Basra","Iraq"],["Kuwait","Kuwait"],
+    ["Saudi","Saudi Arabia"],["Riyadh","Saudi Arabia"],["Yemen","Yemen"],
+    ["Egypt","Egypt"],["Cairo","Egypt"],["Turkey","Turkey"],["Ankara","Turkey"],
+    ["Iran","Iran"],["Tehran","Iran"],
+    ["Hormuz","Hormuz Strait"],["Bahrain","Bahrain"],["Qatar","Qatar"],["Oman","Oman"],
+    ["Jordan","Jordan"],["Syria","Syria"],["Lebanon","Lebanon"],
   ];
   for (const [kw, region] of map) {
     if (text.includes(kw)) return region;
@@ -151,8 +155,6 @@ const HOTLINES = [
   { name: "Ambulance", number: "998", tel: "998", emoji: "🚑", desc: "Injuries · Medical emergency · Trauma", color: "green" },
   { name: "Dubai Police", number: "999", tel: "999", emoji: "🚔", desc: "Police · Security · All emergencies", color: "blue" },
   { name: "NCEMA Crisis Line", number: "800 2040", tel: "8002040", emoji: "🏛", desc: "National crisis management authority", color: "amber" },
-  { name: "US Embassy Abu Dhabi", number: "+971 2 414 2200", tel: "+97124142200", emoji: "🇺🇸", desc: "American nationals in UAE", color: "slate" },
-  { name: "UK Embassy", number: "+971 4 309 4444", tel: "+97143094444", emoji: "🇬🇧", desc: "British nationals in UAE", color: "slate" },
 ];
 
 // ─────────────────────────────────────────────────────────────
@@ -393,7 +395,7 @@ const useLiveNews = () => {
   const [lastUpdated, setLastUpdated] = useState(null);
 
   const tryGdeltNews = async () => {
-    const query = encodeURIComponent("missile attack strike explosion Iran Iraq Kuwait UAE Dubai Saudi Arabia");
+    const query = encodeURIComponent("Middle East Gulf UAE Dubai Iraq Kuwait Saudi Iran Yemen Syria Israel Gaza Jordan Bahrain Qatar Oman Egypt Turkey Palestine US United States missile strike explosion diplomacy sanction political military");
     const url = `https://api.gdeltproject.org/api/v2/doc/doc?query=${query}&mode=artlist&maxrecords=20&format=json&timespan=1day&sourcelang=eng`;
     const res = await fetch(url);
     const data = await res.json();
@@ -413,9 +415,9 @@ const useLiveNews = () => {
       if (!CONFIG.NEWS_API_KEY) throw new Error("NO_KEY");
       const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Dubai" });
       const q = encodeURIComponent(
-        "(missile OR strike OR explosion OR attack OR ballistic OR Iran OR \"Middle East\" OR \"military\" OR \"troop\" OR \"defense\") AND (UAE OR Dubai OR Iraq OR Kuwait OR Saudi OR Hormuz) -oil -gold -price -stock -market -finance -commodity -OPEC -crude -trading"
+        "((missile OR strike OR explosion OR attack OR ballistic OR military OR troop OR defense OR diplomacy OR diplomatic OR sanction OR summit OR treaty OR agreement OR \"travel advisory\" OR evacuation OR terrorism OR unrest) OR (political OR politics OR government OR regime OR leadership OR regional)) AND (\"Middle East\" OR Gulf OR UAE OR Dubai OR Iraq OR Kuwait OR Saudi OR Iran OR Yemen OR Syria OR Israel OR Gaza OR Jordan OR Bahrain OR Qatar OR Oman OR Egypt OR Turkey OR Palestine OR \"United States\" OR Washington) -gold -\"stock market\" -\"commodity trading\" -\"oil price\" -earnings -dividend -nasdaq -\"brent crude\""
       );
-      const res = await fetch(`https://newsapi.org/v2/everything?q=${q}&language=en&sortBy=publishedAt&pageSize=20&from=${today}&to=${today}&apiKey=${CONFIG.NEWS_API_KEY}`);
+      const res = await fetch(`https://newsapi.org/v2/everything?q=${q}&language=en&sortBy=publishedAt&pageSize=40&from=${today}&to=${today}&apiKey=${CONFIG.NEWS_API_KEY}`);
       if (!res.ok) throw new Error(`NewsAPI ${res.status}`);
       const data = await res.json();
       if (data.status !== "ok") throw new Error(data.message || "NewsAPI error");
@@ -478,7 +480,7 @@ const useGdeltMap = () => {
   useEffect(() => {
     const load = async () => {
       try {
-        const q = encodeURIComponent("missile attack strike explosion Iran Iraq Kuwait UAE Saudi Arabia Hormuz ballistic");
+        const q = encodeURIComponent("missile attack strike explosion Middle East Iraq Kuwait UAE Saudi Iran Yemen Syria Israel Gaza Egypt ballistic troop military");
         const url = `https://api.gdeltproject.org/api/v2/geo/geo?query=${q}&mode=pointdata&format=json&timespan=7days&maxrecords=60&sourcelang=eng`;
         const res = await fetch(url);
         const data = await res.json();
@@ -542,8 +544,8 @@ const useClaudeSummary = (news) => {
     setLoading(true);
     setError(null);
     try {
-      const MILITARY_CONFLICT_RE = /missile|strike|attack|explosion|war|conflict|military|troop|defense|ballistic|rocket|blast|bomb|combat|invasion|evacuation|travel advisory|terrorism|unrest|political|strategy|iran|iraq|kuwait|yemen|syria|hormuz|gulf|uae|dubai|middle east|air strike|airstrike/i;
-      const EXCLUDE_FINANCE_RE = /oil|crude|petrol|brent|wti|barrel|opec|edible oil|oilmeals|oil sector|oil industry|commodit|commodity|stock|share|market|equity|nasdaq|s&p|dow|trading|invest|currency|forex|inflation|earnings|revenue|profit|dividend|ipo|billionaire|hedge fund|gold (surge|price|rally)|silver price|commodity price|rs \d|rupee|perfect time to (invest|buy|sell)|sector turn|cautious amid|agri|agricultur|food price|supply chain|import.*export|price (of|per)|pricing/i;
+      const MILITARY_CONFLICT_RE = /missile|strike|attack|explosion|war|conflict|military|troop|defense|ballistic|rocket|blast|bomb|combat|invasion|evacuation|travel advisory|terrorism|unrest|political|politics|diplomacy|diplomatic|sanction|summit|treaty|strategy|iran|iraq|kuwait|yemen|syria|hormuz|gulf|uae|dubai|middle east|air strike|airstrike|regime|government/i;
+      const EXCLUDE_FINANCE_RE = /oil price|oil prices|oil sector|oil industry|oilmeals|edible oil|brent|wti|barrel|commodit|commodity|stock|share|market|equity|nasdaq|s&p|dow|trading|invest|currency|forex|inflation|earnings|revenue|profit|dividend|ipo|billionaire|hedge fund|gold (surge|price|rally)|silver price|commodity price|rs \d|rupee|perfect time to (invest|buy|sell)|sector turn|cautious amid|agri|agricultur|food price|supply chain|price (of|per)\b|pricing/i;
       const safetyRelevant = articles.filter(a => {
         const t = `${a.title} ${a.summary || ""}`;
         if (!isEnglishContent(a.title)) return false;
@@ -584,7 +586,7 @@ Summarize the war, conflict, and security situation in the Middle East region as
 
 ## Rules — follow strictly
 1. INCLUDE ONLY: Military conflicts, missile/strike activity, attacks, military strategy announcements, troop movements, defense policy, evacuations, travel advisories, terrorism, civil unrest, regional security, political tensions. Focus on military status and political conflict—what affects civilian safety. NO finance, NO markets.
-2. EXCLUDE ALWAYS: Oil (any kind), oil sector, oilmeals, finance, stock markets, gold/commodity prices, currency, investments, business sectors, agriculture/food prices, supply chains, pricing. If an article mentions "X sector cautious" or "markets/react" or business/economic impact—SKIP IT entirely.
+2. EXCLUDE ALWAYS: Oil pricing, oil sector, oilmeals, finance, stock markets, gold/commodity prices, currency, investments, business sectors, agriculture/food prices, supply chains. INCLUDE: political moves about oil (sanctions, OPEC decisions, embargoes). If an article mentions "X sector cautious" or "markets/react" or business/economic impact—SKIP IT entirely.
 3. Each bullet = exactly ONE line. One short sentence only (~15–20 words max). Base on the article—do not invent. Wrap the key phrase in **double asterisks**.
 4. Output 5–7 bullets. One article per bullet. Single sentence per bullet. Do NOT repeat the same story—if two articles cover the same event, include only ONE bullet for it.
 5. Return ONLY a raw JSON array. No markdown, no preamble.
@@ -594,7 +596,7 @@ Summarize the war, conflict, and security situation in the Middle East region as
 - "text": string (ONE line, one sentence, ~15–20 words max, with **bold** key phrase)
 - "severity": "high" | "medium" | "low"
 - "articleIndex": 1-based index of the article (1–14)`,
-          messages: [{ role: "user", content: `Articles (numbered 1–14). Generate the safety briefing in English only. Each bullet = ONE line only (one short sentence, ~15–20 words max). EXCLUDE: oil, gold, finance, commodities. INCLUDE ONLY: military status, strategy, political conflict. Do NOT include two bullets about the same news story. Write all output in English.\n\n${inputText}\n\nGenerate the JSON briefing now.` }],
+          messages: [{ role: "user", content: `Articles (numbered 1–14). Generate the safety briefing in English only. Each bullet = ONE line only (one short sentence, ~15–20 words max). EXCLUDE: oil pricing, gold, finance, commodities. INCLUDE: military, strategy, political conflict, diplomatic moves, sanctions (including oil sanctions). Do NOT include two bullets about the same news story. Write all output in English.\n\n${inputText}\n\nGenerate the JSON briefing now.` }],
         }),
       });
 
@@ -607,15 +609,16 @@ Summarize the war, conflict, and security situation in the Middle East region as
     } catch (err) {
       setError(err.message);
       // Prefer conflict-related headlines; if AI credits low, fall back to any news headlines
+      const financeOnlyRe = /oil price|oil sector|brent|wti|commodit|stock|share|market|equity|trading|currency|forex|gold price|revenue|profit|dividend/i;
       const safeForFallback = articles.filter(a => {
         const t = `${a.title} ${a.summary || ""}`;
-        if (/oil|crude|petrol|brent|commodit|stock|share|market|equity|trading|currency|forex|gold price|revenue|profit|dividend/i.test(t)) return false;
-        if (/missile|strike|attack|explosion|war|conflict|military|troop|ballistic|iran|iraq|kuwait|hormuz|middle east/i.test(t)) return true;
+        if (financeOnlyRe.test(t)) return false;
+        if (/missile|strike|attack|explosion|war|conflict|military|troop|ballistic|political|diplomacy|sanction|iran|iraq|kuwait|hormuz|middle east/i.test(t)) return true;
         return false;
       });
       const fallbackArticles = safeForFallback.length > 0 ? safeForFallback : articles.filter(a => {
         const t = `${a.title} ${a.summary || ""}`;
-        return !/oil|crude|petrol|brent|commodit|stock|share|market|equity|trading|currency|forex/i.test(t);
+        return !financeOnlyRe.test(t);
       });
       const oneLine = (s) => (s.length > 120 ? s.slice(0, 117).replace(/\s+\S*$/, "") + "…" : s);
       const fallbackBullets = fallbackArticles.slice(0, 8).map(a => ({ text: oneLine([a.title, a.summary].filter(Boolean).join(" ")), severity: a.severity, news: a }));
@@ -740,7 +743,7 @@ const AISummaryPanel = ({ bullets, loading, error, lastUpdated, onRegenerate, bu
       {loading && bullets.length === 0 ? (
         <div className="flex items-center gap-3 py-4 text-sm text-blue-500"><Spinner size={16}/> Generating briefing from live news…</div>
       ) : bullets.length === 0 ? (
-        <p className="text-sm text-slate-400 py-2">{hasNews ? "No military or conflict-related news in this batch. Finance, oil, gold, and commodity news are excluded—only military status and political conflict." : "Waiting for news data… Add your NewsAPI key to enable live summaries."}</p>
+        <p className="text-sm text-slate-400 py-2">{hasNews ? "No military or conflict-related news in this batch. Finance, oil pricing, gold, and commodity news are excluded—military, political, and diplomatic news (including oil sanctions) are included." : "Waiting for news data… Add your NewsAPI key to enable live summaries."}</p>
       ) : (
         <ul className="space-y-2.5 min-w-0 w-full overflow-visible">
           {filteredBullets.length === 0 && filterBadge ? <p className="text-sm text-slate-400 py-2">No {filterBadge.label.replace(/^[^\s]+\s/, "")} items. {onClearFilter && <button onClick={onClearFilter} className="text-blue-600 hover:underline">Clear filter</button>}</p> : filteredBullets.map((b, i) => (
@@ -1403,7 +1406,7 @@ export default function SafeDXB() {
             <Alert><AlertTitle>💡 In any life-threatening emergency, call 999 first</AlertTitle><AlertDescription>Operators dispatch police, fire, or ambulance from a single call. Keep other lines clear for non-critical issues.</AlertDescription></Alert>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">{HOTLINES.map(h=><HCard key={h.name} h={h}/>)}</div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {[{ title:"Hospitals", items:[["Rashid Hospital","+971 4 219 2000"],["DHA Emergency","800 342"],["Cleveland Clinic AUH","+971 2 501 0800"],["American Hospital DXB","+971 4 336 7777"]] },{ title:"More Embassies", items:[["🇺🇸 US Embassy AUH","+971 2 414 2200"],["🇮🇳 India Consulate","+971 4 397 1222"],["🇵🇭 Philippines","+971 4 220 7100"],["🇨🇦 Canada","+971 2 694 0300"]] },{ title:"Utilities", items:[["DEWA Emergency","991"],["Gas Leaks","800 ADGAS"],["Traffic Accidents","800 DUBAI"],["Coast Guard UAE","800 4666"]] }].map(sec=>(<Card key={sec.title}><CardHeader className="pb-2"><CardTitle>{sec.title}</CardTitle></CardHeader><CardContent className="space-y-1">{sec.items.map(([n,num])=>(<a key={n} href={`tel:${num.replace(/\s/g,"")}`} className="flex items-center justify-between py-2 border-b border-slate-50 last:border-0 hover:bg-slate-50 rounded px-1 transition-colors group"><span className="text-sm text-slate-700">{n}</span><span className="text-xs font-mono font-semibold text-slate-900 group-hover:text-blue-600 transition-colors">{num}</span></a>))}</CardContent></Card>))}
+              {[{ title:"Hospitals", items:[["Rashid Hospital","+971 4 219 2000"],["DHA Emergency","800 342"],["Cleveland Clinic AUH","+971 2 501 0800"],["American Hospital DXB","+971 4 336 7777"]] }].map(sec=>(<Card key={sec.title}><CardHeader className="pb-2"><CardTitle>{sec.title}</CardTitle></CardHeader><CardContent className="space-y-1">{sec.items.map(([n,num])=>(<a key={n} href={`tel:${num.replace(/\s/g,"")}`} className="flex items-center justify-between py-2 border-b border-slate-50 last:border-0 hover:bg-slate-50 rounded px-1 transition-colors group"><span className="text-sm text-slate-700">{n}</span><span className="text-xs font-mono font-semibold text-slate-900 group-hover:text-blue-600 transition-colors">{num}</span></a>))}</CardContent></Card>))}
             </div>
           </div>
         )}
