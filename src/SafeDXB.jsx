@@ -171,6 +171,63 @@ const HOTLINES = [
   { name: "NCEMA Crisis Line", number: "800 2040", tel: "8002040", emoji: "🏛", desc: "National crisis management authority", color: "amber" },
 ];
 
+// Emergency numbers by country — [[ label, number, color ]]. Fallback to UAE for unknown.
+const EMERGENCY_BY_COUNTRY = {
+  "united arab emirates": [["Fire", "997", "red"], ["Ambulance", "998", ""], ["Police", "999", "blue"]],
+  uae: [["Fire", "997", "red"], ["Ambulance", "998", ""], ["Police", "999", "blue"]],
+  singapore: [["Fire / SCDF", "995", "red"], ["Police", "999", "blue"]],
+  "saudi arabia": [["Fire", "997", "red"], ["Ambulance", "997", ""], ["Police", "999", "blue"]],
+  kuwait: [["Emergency", "112", "red"], ["Fire", "112", ""], ["Ambulance", "112", ""]],
+  bahrain: [["Emergency", "999", "red"]],
+  qatar: [["Emergency", "999", "red"]],
+  oman: [["Emergency", "9999", "red"]],
+  malaysia: [["Emergency", "999", "red"]],
+  "united kingdom": [["Emergency", "999", "red"]],
+  uk: [["Emergency", "999", "red"]],
+  "united states": [["Emergency", "911", "red"]],
+  "united states of america": [["Emergency", "911", "red"]],
+  usa: [["Emergency", "911", "red"]],
+  canada: [["Emergency", "911", "red"]],
+  australia: [["Emergency", "000", "red"]],
+  india: [["Fire", "101", "red"], ["Ambulance", "102", ""], ["Police", "100", "blue"]],
+  japan: [["Ambulance / Fire", "119", "red"], ["Police", "110", "blue"]],
+  "south korea": [["Fire / Ambulance", "119", "red"], ["Police", "112", "blue"]],
+  "republic of korea": [["Fire / Ambulance", "119", "red"], ["Police", "112", "blue"]],
+  france: [["Fire", "18", "red"], ["Ambulance", "15", ""], ["Police", "17", "blue"]],
+  germany: [["Emergency", "112", "red"]],
+  italy: [["Emergency", "112", "red"]],
+  spain: [["Emergency", "112", "red"]],
+  netherlands: [["Emergency", "112", "red"]],
+  egypt: [["Fire", "180", "red"], ["Ambulance", "123", ""], ["Police", "122", "blue"]],
+  turkey: [["Emergency", "112", "red"]],
+  pakistan: [["Emergency", "1122", "red"]],
+  indonesia: [["Emergency", "112", "red"]],
+  philippines: [["Emergency", "911", "red"]],
+  thailand: [["Emergency", "191", "red"]],
+  "hong kong": [["Emergency", "999", "red"]],
+  "new zealand": [["Emergency", "111", "red"]],
+  "south africa": [["Emergency", "10111", "red"]],
+};
+
+const getEmergencyNumbers = (country, city) => {
+  const key = (country || "").toLowerCase().trim();
+  const byCountry = EMERGENCY_BY_COUNTRY[key];
+  if (byCountry) return { lines: byCountry, primary: byCountry[0][1] };
+  if (/\b(uae|dubai|abu dhabi|emirates)\b/i.test(`${country} ${city}`)) {
+    return { lines: EMERGENCY_BY_COUNTRY.uae, primary: "999" };
+  }
+  if (/\b(singapore)\b/i.test(`${country} ${city}`)) {
+    return { lines: EMERGENCY_BY_COUNTRY.singapore, primary: "995" };
+  }
+  if (/\b(usa|us|america|united states)\b/i.test(`${country} ${city}`)) {
+    return { lines: EMERGENCY_BY_COUNTRY.usa, primary: "911" };
+  }
+  if (/\b(uk|britain|united kingdom)\b/i.test(`${country} ${city}`)) {
+    return { lines: EMERGENCY_BY_COUNTRY.uk, primary: "999" };
+  }
+  return { lines: [["Fire", "997", "red"], ["Ambulance", "998", ""], ["Police", "999", "blue"]], primary: "999" };
+};
+
 // ─────────────────────────────────────────────────────────────
 //  4-LEVEL STATUS ENGINE
 // ─────────────────────────────────────────────────────────────
@@ -477,6 +534,7 @@ const useLiveNews = () => {
   };
 
   const fetchNews = async () => {
+    setLoading(true);
     setError(null);
     const isDeployed = typeof window !== "undefined" && !/^localhost$|^127\./.test(window.location?.hostname || "");
     if (isDeployed) {
@@ -484,6 +542,16 @@ const useLiveNews = () => {
       setHasRealNews(true);
       setLastUpdated(new Date());
       setLoading(false);
+      try {
+        const gdelt = await tryGdeltNews();
+        if (gdelt.length > 0) {
+          const deduped = dedupeNews(gdelt);
+          const diversified = diversifyNewsByRegion(deduped).map((a, i) => ({ ...a, id: i }));
+          setNews(diversified);
+          setLastUpdated(new Date());
+          return;
+        }
+      } catch (_) {}
       loadCachedFallback().then((cached) => {
         if (Array.isArray(cached) && cached.length > 0) {
           setNews(cached.map((a, i) => ({ ...a, id: i })));
@@ -492,7 +560,6 @@ const useLiveNews = () => {
       }).catch(() => {});
       return;
     }
-    setLoading(true);
     try {
       if (!CONFIG.NEWS_API_KEY) throw new Error("NO_KEY");
       const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Dubai" });
@@ -1350,6 +1417,7 @@ export default function SafeDXB() {
   const locRisk = assessLocationRisk(userLoc.country || "", userLoc.city || "");
   const status = aiStatus;
   const filtered  = news.filter(n => filter === "all" || n.severity === filter);
+  const emergencyNumbers = getEmergencyNumbers(userLoc.country, userLoc.city);
   const regionCounts = news.reduce((a, n) => { a[n.region] = (a[n.region] || 0) + 1; return a; }, {});
 
   const TabIcon = ({ id, className }) => {
@@ -1415,9 +1483,9 @@ export default function SafeDXB() {
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
             Dubai {time} GST+4
           </div>
-          <a href="tel:998" className="inline-flex items-center gap-2 rounded-lg bg-red-600 hover:bg-red-700 text-white px-4 py-2 text-sm font-semibold transition-colors shadow-sm cursor-pointer">
+          <a href={`tel:${String(emergencyNumbers.primary).replace(/\s/g,"")}`} className="inline-flex items-center gap-2 rounded-lg bg-red-600 hover:bg-red-700 text-white px-4 py-2 text-sm font-semibold transition-colors shadow-sm cursor-pointer">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81a19.79 19.79 0 01-3.07-8.68A2 2 0 012.18 1h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 8.14a16 16 0 006 6l1.41-1.41a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
-            Emergency 998
+            Emergency {emergencyNumbers.primary}
           </a>
         </div>
         <div className="ticker-wrap bg-slate-900 text-white border-t border-slate-700 py-1.5">
@@ -1552,9 +1620,12 @@ export default function SafeDXB() {
               </div>
               <div className="space-y-4">
                 <Card>
-                  <CardHeader className="pb-2"><CardTitle>Quick Dial</CardTitle></CardHeader>
+                  <CardHeader className="pb-2"><CardTitle>Quick Dial {userLoc.country ? <span className="text-[10px] font-normal text-slate-500 normal-case"> · {[userLoc.city, userLoc.country].filter(Boolean).join(", ")}</span> : null}</CardTitle></CardHeader>
                   <CardContent className="space-y-2">
-                    {[["🚒 Fire","997","red"],["🚑 Ambulance","998",""],["🚔 Police","999",""]].map(([l,n,col])=>(<a key={n} href={`tel:${n}`} className={cn("flex items-center justify-between p-3 rounded-lg border text-sm font-semibold transition-all hover:shadow-sm", col==="red"?"bg-red-50 border-red-200 text-red-700 hover:bg-red-100":"bg-white border-slate-200 text-slate-800 hover:bg-slate-50")}><span>{l}</span><span className="font-black text-lg">{n}</span></a>))}
+                    {(emergencyNumbers.lines.map(([label, num, col], i) => {
+                      const emoji = /fire/i.test(label) ? "🚒" : /ambulance|scdf/i.test(label) ? "🚑" : /police/i.test(label) ? "🚔" : "🚨";
+                      return <a key={`${num}-${i}`} href={`tel:${String(num).replace(/\s/g,"")}`} className={cn("flex items-center justify-between p-3 rounded-lg border text-sm font-semibold transition-all hover:shadow-sm", col==="red"?"bg-red-50 border-red-200 text-red-700 hover:bg-red-100":col==="blue"?"bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100":"bg-white border-slate-200 text-slate-800 hover:bg-slate-50")}><span>{emoji} {label}</span><span className="font-black text-lg">{num}</span></a>;
+                    }))}
                   </CardContent>
                 </Card>
               </div>
@@ -1567,7 +1638,14 @@ export default function SafeDXB() {
               <div className="flex items-center gap-2 flex-wrap">
                 <p className="text-sm font-semibold text-slate-700 mr-1">Filter:</p>
                 {[["all","All","secondary"],["high","High","destructive"],["medium","Medium","warning"],["low","Low","success"]].map(([v,l,variant])=>(<button key={v} onClick={()=>setFilter(v)} className={cn("cursor-pointer transition-opacity h-full min-w-[70px] rounded-full",filter===v?"shadow-none":"opacity-60 hover:opacity-100")}><Badge variant={variant} className={cn("min-w-[70px] justify-center",filter===v&&variant==="secondary"?"!bg-slate-900 !text-slate-100":"")}>{l}</Badge></button>))}
-                <div className="ml-auto flex items-center gap-2">{nLoading&&<Spinner size={13}/>}<span className="text-xs text-slate-400">{filtered.length} articles</span>{lastUpdated&&<span className="text-xs text-slate-400">· {formatTimeAgo(lastUpdated.toISOString())}</span>}</div>
+                <div className="ml-auto flex items-center gap-2">
+                  <button onClick={refetch} disabled={nLoading} className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 disabled:opacity-50 cursor-pointer" title="Refresh news">
+                    {nLoading ? <Spinner size={13}/> : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>}
+                    Refresh
+                  </button>
+                  <span className="text-xs text-slate-400">{filtered.length} articles</span>
+                  {lastUpdated&&<span className="text-xs text-slate-400">· {formatTimeAgo(lastUpdated.toISOString())}</span>}
+                </div>
               </div>
               {nLoading&&!news.length ? [...Array(5)].map((_,i)=><SkeletonCard key={i}/>) : filtered.length===0 ? <div className="text-center py-12 text-slate-400"><p className="text-lg">No articles found</p><p className="text-sm mt-1">{hasKey?"Try a different filter":"Add your NewsAPI key to see live news"}</p></div> : filtered.map(n=><NewsCard key={n.id} item={n}/>)}
             </div>
@@ -1610,8 +1688,16 @@ export default function SafeDXB() {
         )}
         {tab === "hotlines" && (
           <div className="space-y-6">
-            <Alert><AlertTitle>💡 In any life-threatening emergency, call 999 first</AlertTitle><AlertDescription>Operators dispatch police, fire, or ambulance from a single call. Keep other lines clear for non-critical issues.</AlertDescription></Alert>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">{HOTLINES.map(h=><HCard key={h.name} h={h}/>)}</div>
+            <Alert><AlertTitle>💡 In any life-threatening emergency, call {emergencyNumbers.primary} first</AlertTitle><AlertDescription>Operators dispatch police, fire, or ambulance from a single call. Keep other lines clear for non-critical issues. {userLoc.country && <span className="block mt-2 text-slate-500">Showing numbers for {userLoc.city && `${userLoc.city}, `}{userLoc.country}</span>}</AlertDescription></Alert>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              {(/uae|dubai|abu dhabi|emirates|united arab emirates/i.test(userLoc.country || "") || !userLoc.country)
+                ? HOTLINES.map(h=><HCard key={h.name} h={h}/>)
+                : emergencyNumbers.lines.map(([label, num, col], i) => {
+                    const emoji = /fire/i.test(label) ? "🚒" : /ambulance|scdf/i.test(label) ? "🚑" : /police/i.test(label) ? "🚔" : "🚨";
+                    const h = { name: label, number: num, tel: String(num).replace(/\s/g,""), emoji, desc: "Emergency services", color: col === "red" ? "red" : col === "blue" ? "blue" : "green" };
+                    return <HCard key={`${label}-${i}`} h={h}/>;
+                  })}
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {[{ title:"Hospitals", items:[["Rashid Hospital","+971 4 219 2000"],["DHA Emergency","800 342"],["Cleveland Clinic AUH","+971 2 501 0800"],["American Hospital DXB","+971 4 336 7777"]] }].map(sec=>(<Card key={sec.title}><CardHeader className="pb-2"><CardTitle>{sec.title}</CardTitle></CardHeader><CardContent className="space-y-1">{sec.items.map(([n,num])=>(<a key={n} href={`tel:${num.replace(/\s/g,"")}`} className="flex items-center justify-between py-2 border-b border-slate-50 last:border-0 hover:bg-slate-50 rounded px-1 transition-colors group"><span className="text-sm text-slate-700">{n}</span><span className="text-xs font-mono font-semibold text-slate-900 group-hover:text-blue-600 transition-colors">{num}</span></a>))}</CardContent></Card>))}
             </div>
