@@ -4,10 +4,11 @@
 
 | Key | Required | Purpose | Where to Get |
 |-----|----------|---------|--------------|
-| **VITE_NEWS_API_KEY** | Yes (for news) | Fetches Latest News articles | [newsapi.org/register](https://newsapi.org/register) — Free: 100 req/day |
+| **VITE_GDELT_API_KEY** / **GDELT_API_KEY** | Yes (for live news) | Primary live news source (conflict/security) | [gdeltcloud.com/auth/sign-up](https://gdeltcloud.com/auth/sign-up) — Analyst or Professional plan |
+| **VITE_NEWS_API_KEY** | Fallback | NewsAPI articles when GDELT fails | [newsapi.org/register](https://newsapi.org/register) — Free: 100 req/day |
 | **VITE_ANTHROPIC_API_KEY** | Yes (for AI summaries) | Generates bullet-point briefings | [console.anthropic.com](https://console.anthropic.com) — Paid, usage-based |
 
-**No key needed:** GDELT (strike map), ipapi.co (location), OpenStreetMap (geocoding).
+**No key needed:** GDELT Project (strike map), ipapi.co (location), OpenStreetMap (geocoding).
 
 ---
 
@@ -28,10 +29,15 @@ VITE_ANTHROPIC_API_KEY=sk-ant-your_anthropic_key_here
 
 ### 3. Deploy
 
-For **Vercel / Netlify / similar:**
+For **Vercel** (recommended):
 
-- Add the env vars in the project dashboard (Settings → Environment Variables).
-- Keys must be prefixed with `VITE_` to be exposed to the client.
+- Add `GDELT_API_KEY` (primary), `VITE_NEWS_API_KEY` (fallback), and `VITE_ANTHROPIC_API_KEY` in Vercel → Settings → Environment Variables.
+- `api/gdelt.js` proxies GDELT Cloud (keeps key server-side). `api/news.js` proxies NewsAPI when needed.
+- Deploy with `vercel` or connect your Git repo. Build outputs to `dist/`.
+
+For **Netlify / static hosts:**
+
+- Add env vars. NewsAPI free tier blocks browser requests — you’ll get GDELT + fallback only (no live NewsAPI).
 
 ```bash
 npm run build

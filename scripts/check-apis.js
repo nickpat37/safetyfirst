@@ -31,8 +31,27 @@ function loadEnv() {
 }
 
 const env = { ...loadEnv(), ...process.env };
+const GDELT_KEY = env.VITE_GDELT_API_KEY ?? env.GDELT_API_KEY ?? "";
 const NEWS_KEY = env.VITE_NEWS_API_KEY ?? "";
 const ANTHROPIC_KEY = env.VITE_ANTHROPIC_API_KEY ?? "";
+
+async function testGdeltCloud() {
+  if (!GDELT_KEY) return { ok: false, msg: "No VITE_GDELT_API_KEY in .env" };
+  try {
+    const res = await fetch(
+      "https://gdeltcloud.com/api/v1/media-events?days=1&limit=3&category=conflict_security",
+      { headers: { Authorization: `Bearer ${GDELT_KEY}` } }
+    );
+    const data = await res.json();
+    if (res.ok && data.success !== false) {
+      const n = data.articles?.length ?? 0;
+      return { ok: true, msg: `GDELT Cloud OK (${n} articles)` };
+    }
+    return { ok: false, msg: data.error || `HTTP ${res.status}` };
+  } catch (e) {
+    return { ok: false, msg: e.message };
+  }
+}
 
 async function testNewsAPI() {
   if (!NEWS_KEY) return { ok: false, msg: "No VITE_NEWS_API_KEY in .env" };
@@ -76,10 +95,15 @@ async function testAnthropic() {
 
 async function main() {
   console.log("Checking APIs...\n");
-  const [news, anthropic] = await Promise.all([testNewsAPI(), testAnthropic()]);
+  const [gdelt, news, anthropic] = await Promise.all([
+    testGdeltCloud(),
+    testNewsAPI(),
+    testAnthropic(),
+  ]);
+  console.log("GDELT Cloud:  ", gdelt.ok ? "✓" : "✗", gdelt.msg);
   console.log("News API:     ", news.ok ? "✓" : "✗", news.msg);
   console.log("Anthropic API:", anthropic.ok ? "✓" : "✗", anthropic.msg);
-  process.exit(news.ok && anthropic.ok ? 0 : 1);
+  process.exit(gdelt.ok && news.ok && anthropic.ok ? 0 : 1);
 }
 
 main();

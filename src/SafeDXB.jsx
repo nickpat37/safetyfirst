@@ -8,6 +8,7 @@ import { feature } from "topojson-client";
 const CONFIG = {
   NEWS_API_KEY: import.meta.env?.VITE_NEWS_API_KEY ?? "",
   ANTHROPIC_API_KEY: import.meta.env?.VITE_ANTHROPIC_API_KEY ?? "",
+  GDELT_API_KEY: import.meta.env?.VITE_GDELT_API_KEY ?? "",
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -124,6 +125,29 @@ const DEMO_MAP_EVENTS = [
   { id: 2, lon: 47.98, lat: 29.38, type: "warning", label: "KUWAIT", loc: "Kuwait",         detail: "Demo — GDELT loading",  color: "#f59e0b", url: "#" },
   { id: 3, lon: 55.27, lat: 25.20, type: "safe",    label: "DUBAI",  loc: "Dubai, UAE",     detail: "No incidents reported", color: "#22c55e", url: "#" },
 ];
+
+// Middle East country/admin centroids for map markers (GDELT Cloud articles have geo_country_name, geo_adm1_name)
+const ME_COORDS = {
+  Iraq: [44.37, 33.31], IRQ: [44.37, 33.31], Baghdad: [44.37, 33.31], Basra: [47.79, 30.52], Mosul: [43.15, 36.34],
+  Iran: [53.69, 32.43], IRN: [53.69, 32.43], Tehran: [51.42, 35.69], Isfahan: [51.68, 32.65], Hormuz: [56.45, 26.95],
+  Syria: [38.51, 35.03], SYR: [38.51, 35.03], Damascus: [36.28, 33.51], Aleppo: [37.16, 36.20],
+  Israel: [35.21, 31.47], ISR: [35.21, 31.47], Gaza: [34.47, 31.50], Jerusalem: [35.21, 31.77],
+  Yemen: [48.52, 15.55], YEM: [48.52, 15.55], Sanaa: [44.21, 15.35], Aden: [45.02, 12.79],
+  Saudi: [45.08, 25.36], SAU: [45.08, 25.36], "Saudi Arabia": [45.08, 25.36], Riyadh: [46.72, 24.71], Jeddah: [39.18, 21.54],
+  UAE: [54.37, 24.45], ARE: [54.37, 24.45], "United Arab Emirates": [54.37, 24.45], Dubai: [55.27, 25.20], AbuDhabi: [54.37, 24.45],
+  Kuwait: [47.98, 29.38], KWT: [47.98, 29.38], KuwaitCity: [47.98, 29.38],
+  Qatar: [51.54, 25.29], QAT: [51.54, 25.29], Doha: [51.53, 25.29],
+  Bahrain: [50.58, 26.07], BHR: [50.58, 26.07], Manama: [50.58, 26.23],
+  Oman: [56.00, 21.47], OMN: [56.00, 21.47], Muscat: [58.41, 23.58],
+  Jordan: [36.24, 30.58], JOR: [36.24, 30.58], Amman: [35.95, 31.95],
+  Lebanon: [35.86, 33.89], LBN: [35.86, 33.89], Beirut: [35.51, 33.89],
+  Egypt: [30.80, 26.82], EGY: [30.80, 26.82], Cairo: [31.24, 30.04], Sinai: [33.80, 29.50],
+  Turkey: [35.24, 38.96], TUR: [35.24, 38.96], Ankara: [32.86, 39.93], Istanbul: [28.98, 41.01],
+  Palestine: [35.20, 31.90], PSE: [35.20, 31.90], "West Bank": [35.20, 31.90],
+  Afghanistan: [67.71, 33.94], AFG: [67.71, 33.94], Kabul: [69.18, 34.53],
+  Pakistan: [69.35, 30.38], PAK: [69.35, 30.38], Karachi: [67.01, 24.86],
+  "United States": [43.00, 34.00], USA: [43.00, 34.00],
+};
 
 const GUIDELINES = [
   {
@@ -514,21 +538,86 @@ const useLiveNews = () => {
     return FALLBACK_NEWS;
   };
 
-  const tryGdeltNews = async () => {
-    const query = encodeURIComponent("Middle East Gulf UAE Dubai Iraq Kuwait Saudi Iran Yemen Syria Israel Gaza Jordan Bahrain Qatar Oman Egypt Turkey Palestine US United States missile strike explosion diplomacy sanction political military");
-    const url = `https://api.gdeltproject.org/api/v2/doc/doc?query=${query}&mode=artlist&maxrecords=20&format=json&timespan=1day&sourcelang=eng`;
-    const res = await fetchWithTimeout(url, {}, 6000);
+  const NEWS_QUERY = "((missile OR strike OR explosion OR attack OR ballistic OR military OR troop OR defense OR diplomacy OR diplomatic OR sanction OR summit OR treaty) OR (political OR politics OR government OR regime)) AND (\"Middle East\" OR Gulf OR UAE OR Dubai OR Iraq OR Kuwait OR Saudi OR Iran OR Yemen OR Syria OR Israel OR Gaza OR Jordan OR Bahrain OR Qatar OR Oman OR Egypt OR Turkey OR Palestine OR \"United States\") -gold -\"stock market\" -commodity -earnings -dividend -nasdaq -\"brent crude\"";
+
+  const tryNewsApiProxy = async () => {
+    if (!CONFIG.NEWS_API_KEY) return [];
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Dubai" });
+    const params = new URLSearchParams({ q: NEWS_QUERY, from: today, to: today, pageSize: "25" });
+    const res = await fetchWithTimeout(`/api/news?${params}`, {}, 10000);
+    if (!res.ok) return [];
     const data = await res.json();
+    if (data.status !== "ok") return [];
+    const filterByLang = (a) => {
+      if (!a.title || a.title === "[Removed]") return false;
+      if (!isEnglishContent(a.title)) return false;
+      const src = a.source?.name || a.url || "";
+      if (!isEnglishSource(src)) return false;
+      if (a.description && !isEnglishContent(a.description)) return false;
+      return true;
+    };
     return (data.articles || [])
-      .filter(a => a.title && isEnglishContent(a.title) && isEnglishSource(a.domain || a.url || ""))
+      .filter(filterByLang)
       .slice(0, 15).map((a, i) => ({
-        id: i, source: a.domain || "GDELT", time: formatTimeAgo(a.seendate),
-        publishedAt: a.seendate, title: a.title, summary: "",
-        url: a.url, severity: classifySeverity(a.title), region: extractRegion(a.title),
+        id: i, source: a.source?.name || "Unknown",
+        time: formatTimeAgo(a.publishedAt), publishedAt: a.publishedAt,
+        title: a.title, summary: a.description || "",
+        url: a.url, severity: classifySeverity(`${a.title} ${a.description}`),
+        region: extractRegion(`${a.title} ${a.description}`),
       }));
   };
 
-  const fetchWithTimeout = (url, opts = {}, ms = 6000) => {
+  const tryGdeltCloudNews = async () => {
+    const params = new URLSearchParams({ days: "1", limit: "15", category: "conflict_security" });
+    try {
+      let res;
+      if (CONFIG.GDELT_API_KEY) {
+        res = await fetchWithTimeout(
+          `https://gdeltcloud.com/api/v1/media-events?${params}`,
+          { headers: { Authorization: `Bearer ${CONFIG.GDELT_API_KEY}` } },
+          10000
+        );
+      } else {
+        res = await fetchWithTimeout(`/api/gdelt?${params}`, {}, 10000);
+      }
+      if (!res.ok) return [];
+      const data = await res.json();
+      const articles = data.articles || [];
+      return articles
+        .filter(a => a.page_title && a.source_url && isEnglishContent(a.page_title) && isEnglishSource(a.domain || a.source_url || ""))
+        .slice(0, 15).map((a, i) => ({
+          id: i, source: (a.domain || "GDELT").replace(/^www\./, ""),
+          time: formatTimeAgo(a.article_date), publishedAt: a.article_date || new Date().toISOString(),
+          title: a.page_title || "", summary: (a.cluster_label || "").slice(0, 120),
+          url: a.source_url || "#", severity: classifySeverity(`${a.page_title || ""} ${a.cluster_label || ""}`),
+          region: extractRegion(`${a.page_title || ""} ${a.geo_country_name || ""}`),
+        }));
+    } catch (_) {}
+    return [];
+  };
+
+  const tryGdeltProjectNews = async () => {
+    const query = encodeURIComponent("Middle East Gulf Iran Yemen Syria Israel Gaza diplomacy sanction military missile strike");
+    const url = `https://api.gdeltproject.org/api/v2/doc/doc?query=${query}&mode=artlist&maxrecords=15&format=json&timespan=3day&sourcelang=eng`;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const res = await fetchWithTimeout(url, {}, 15000);
+        const data = await res.json();
+        const arts = (data.articles || [])
+          .filter(a => a.title && isEnglishContent(a.title) && isEnglishSource(a.domain || a.url || ""))
+          .slice(0, 15).map((a, i) => ({
+            id: i, source: (a.domain || "GDELT").replace(/^www\./, ""),
+            time: formatTimeAgo(a.seendate), publishedAt: a.seendate,
+            title: a.title, summary: "",
+            url: a.url || "#", severity: classifySeverity(a.title), region: extractRegion(a.title),
+          }));
+        if (arts.length > 0) return arts;
+      } catch (_) {}
+    }
+    return [];
+  };
+
+  const fetchWithTimeout = (url, opts = {}, ms = 10000) => {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), ms);
     return fetch(url, { ...opts, signal: ctrl.signal }).finally(() => clearTimeout(t));
@@ -545,7 +634,27 @@ const useLiveNews = () => {
       setLastUpdated(new Date());
       setLoading(false);
       try {
-        const gdelt = await tryGdeltNews();
+        const gdeltCloud = await tryGdeltCloudNews();
+        if (gdeltCloud.length > 0) {
+          const deduped = dedupeNews(gdeltCloud);
+          const diversified = diversifyNewsByRegion(deduped).map((a, i) => ({ ...a, id: i }));
+          setNews(diversified);
+          setIsPlaceholder(false);
+          setLastUpdated(new Date());
+          return;
+        }
+        if (CONFIG.NEWS_API_KEY) {
+          const proxy = await tryNewsApiProxy();
+          if (proxy.length > 0) {
+            const deduped = dedupeNews(proxy);
+            const diversified = diversifyNewsByRegion(deduped).map((a, i) => ({ ...a, id: i }));
+            setNews(diversified);
+            setIsPlaceholder(false);
+            setLastUpdated(new Date());
+            return;
+          }
+        }
+        const gdelt = await tryGdeltProjectNews();
         if (gdelt.length > 0) {
           const deduped = dedupeNews(gdelt);
           const diversified = diversifyNewsByRegion(deduped).map((a, i) => ({ ...a, id: i }));
@@ -565,6 +674,16 @@ const useLiveNews = () => {
       return;
     }
     try {
+      const gdeltCloud = await tryGdeltCloudNews();
+      if (gdeltCloud.length > 0) {
+        const deduped = dedupeNews(gdeltCloud);
+        const diversified = diversifyNewsByRegion(deduped).map((a, i) => ({ ...a, id: i }));
+        setNews(diversified);
+        setHasRealNews(true);
+        setLastUpdated(new Date());
+        setError(null);
+        return;
+      }
       if (!CONFIG.NEWS_API_KEY) throw new Error("NO_KEY");
       const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Dubai" });
       const q = encodeURIComponent(
@@ -595,7 +714,7 @@ const useLiveNews = () => {
         }));
 
       if (articles.length === 0) {
-        const fallback = await tryGdeltNews();
+        const fallback = await tryGdeltProjectNews();
         if (fallback.length > 0) {
           articles = fallback;
         } else {
@@ -612,7 +731,7 @@ const useLiveNews = () => {
       if (err.message === "NO_KEY") setError("no_key");
       else if (err.name !== "AbortError") setError(err.message);
       try {
-        const fallback = await tryGdeltNews();
+        const fallback = await tryGdeltProjectNews();
         if (fallback.length > 0) {
           const deduped = dedupeNews(fallback);
           const diversified = diversifyNewsByRegion(deduped).map((a, i) => ({ ...a, id: i }));
@@ -642,53 +761,137 @@ const useLiveNews = () => {
   return { news, loading, error, lastUpdated, hasRealNews, isPlaceholder, refetch: fetchNews };
 };
 
+const getCoordsForLocation = (country, adm1) => {
+  const key = (adm1 || country || "").trim();
+  const fallback = (country || "").trim();
+  for (const [k, v] of Object.entries(ME_COORDS)) {
+    if (key && key.toLowerCase().includes(k.toLowerCase())) return v;
+  }
+  for (const [k, v] of Object.entries(ME_COORDS)) {
+    if (fallback && fallback.toLowerCase().includes(k.toLowerCase())) return v;
+  }
+  return null;
+};
+
+const quadToType = (quadClasses) => {
+  if (!quadClasses?.length) return "strike";
+  if (quadClasses.some(c => c === 4)) return "strike";
+  if (quadClasses.some(c => c === 3)) return "warning";
+  return "warning";
+};
+
 const useGdeltMap = () => {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const load = async () => {
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 12000);
+
+      const tryGdeltCloudMap = async () => {
+        if (!CONFIG.GDELT_API_KEY) return [];
+        const params = new URLSearchParams({ days: "7", limit: "50", category: "conflict_security" });
+        try {
+          const res = await fetch(
+            `https://gdeltcloud.com/api/v1/media-events?${params}`,
+            { headers: { Authorization: `Bearer ${CONFIG.GDELT_API_KEY}` }, signal: ctrl.signal }
+          );
+          if (!res.ok) return [];
+          const data = await res.json();
+          const articles = data.articles || [];
+          const byLoc = {};
+          const ME_CODES = new Set(["IRQ","IRN","SYR","ISR","YEM","SAU","ARE","KWT","QAT","BHR","OMN","JOR","LBN","EGY","TUR","PSE","AFG","PAK","USA"]);
+          articles.forEach(a => {
+            const country = (a.geo_country_name || "").trim();
+            const adm1 = (a.geo_adm1_name || "").trim();
+            const code = (a.actor1_country_code || a.actor2_country_code || "").trim();
+            const locKey = country ? `${country}|${adm1}` : (code ? `${code}|` : "");
+            if (!locKey || locKey === "|") return;
+            const coords = getCoordsForLocation(country || code, adm1);
+            if (!coords) return;
+            if (code && !ME_CODES.has(code) && !country) return;
+            const [lon, lat] = coords;
+            const [cx, cy] = projectPoint(lon, lat);
+            if (cx < 30 || cx > 770 || cy < 10 || cy > 470) return;
+            if (!byLoc[locKey]) byLoc[locKey] = { lon, lat, count: 0, quadClasses: [], labels: new Set() };
+            byLoc[locKey].count++;
+            if (a.quad_classes?.length) byLoc[locKey].quadClasses.push(...a.quad_classes);
+            if (a.page_title) byLoc[locKey].labels.add(a.page_title.slice(0, 50));
+          });
+          return Object.entries(byLoc)
+            .map(([key, v], i) => {
+              const [country, adm1] = key.split("|");
+              const label = (adm1 || country || "Event").replace(/,.*/g, "").toUpperCase().slice(0, 12);
+              const type = quadToType(v.quadClasses);
+              return {
+                id: `gc-${i}`, lon: v.lon, lat: v.lat,
+                label, loc: [country, adm1].filter(Boolean).join(", ") || "Unknown",
+                detail: `${v.count} conflict-related event${v.count > 1 ? "s" : ""} — GDELT`,
+                url: "#", color: type === "strike" ? "#ef4444" : "#f59e0b", type,
+              };
+            })
+            .filter((e, i, arr) => {
+              const [cx, cy] = projectPoint(e.lon, e.lat);
+              return arr.findIndex(o => {
+                const [ox, oy] = projectPoint(o.lon, o.lat);
+                return Math.abs(ox - cx) < 25 && Math.abs(oy - cy) < 25;
+              }) === i;
+            })
+            .sort((a, b) => (b.loc?.length || 0) - (a.loc?.length || 0))
+            .slice(0, 20);
+        } catch (_) {}
+        return [];
+      };
+
+      const tryGdeltProjectGeo = async () => {
+        try {
+          const q = encodeURIComponent("missile attack strike explosion Middle East Iraq Kuwait UAE Saudi Iran Yemen Syria Israel Gaza Egypt ballistic troop military");
+          const url = `https://api.gdeltproject.org/api/v2/geo/geo?query=${q}&mode=pointdata&format=json&timespan=7days&maxrecords=60&sourcelang=eng`;
+          const res = await fetch(url, { signal: ctrl.signal });
+          const data = await res.json();
+          const pts = (data.features || [])
+            .filter(f => f.geometry?.coordinates?.length === 2 && f.properties?.name)
+            .map((f, i) => {
+              const [lon, lat] = f.geometry.coordinates;
+              return {
+                id: i, lon, lat,
+                label: (f.properties.name || "").split(",")[0].toUpperCase().slice(0, 12),
+                loc: f.properties.name || "Unknown",
+                detail: (f.properties.name || "") + " — conflict event detected",
+                url: f.properties.url || "#",
+                color: "#ef4444", type: "strike",
+              };
+            })
+            .filter(e => {
+              const [cx, cy] = projectPoint(e.lon, e.lat);
+              return cx > 30 && cx < 770 && cy > 10 && cy < 470;
+            })
+            .filter((e, i, arr) => {
+              const [cx, cy] = projectPoint(e.lon, e.lat);
+              return arr.findIndex(o => {
+                const [ox, oy] = projectPoint(o.lon, o.lat);
+                return Math.abs(ox - cx) < 18 && Math.abs(oy - cy) < 18;
+              }) === i;
+            })
+            .slice(0, 14);
+          return pts;
+        } catch (_) {}
+        return [];
+      };
+
       try {
-        const q = encodeURIComponent("missile attack strike explosion Middle East Iraq Kuwait UAE Saudi Iran Yemen Syria Israel Gaza Egypt ballistic troop military");
-        const url = `https://api.gdeltproject.org/api/v2/geo/geo?query=${q}&mode=pointdata&format=json&timespan=7days&maxrecords=60&sourcelang=eng`;
-        const res = await fetch(url);
-        const data = await res.json();
-
-        const pts = (data.features || [])
-          .filter(f => f.geometry?.coordinates?.length === 2 && f.properties?.name)
-          .map((f, i) => {
-            const [lon, lat] = f.geometry.coordinates;
-            return {
-              id: i, lon, lat,
-              label: (f.properties.name || "").split(",")[0].toUpperCase().slice(0, 12),
-              loc: f.properties.name || "Unknown",
-              detail: (f.properties.name || "") + " — conflict event detected",
-              url: f.properties.url || "#",
-              color: "#ef4444", type: "strike",
-            };
-          })
-          .filter(e => {
-            const [cx, cy] = projectPoint(e.lon, e.lat);
-            return cx > 30 && cx < 770 && cy > 10 && cy < 470;
-          })
-          .filter((e, i, arr) => {
-            const [cx, cy] = projectPoint(e.lon, e.lat);
-            return arr.findIndex(o => {
-              const [ox, oy] = projectPoint(o.lon, o.lat);
-              return Math.abs(ox - cx) < 18 && Math.abs(oy - cy) < 18;
-            }) === i;
-          })
-          .slice(0, 14);
-
+        let pts = await tryGdeltCloudMap();
+        if (pts.length === 0) pts = await tryGdeltProjectGeo();
         const withDubai = pts.filter(p => !/dubai|uae|emirates/i.test(p.loc)).concat([{
           id: "dubai", lon: 55.27, lat: 25.20, type: "safe", label: "DUBAI",
           loc: "Dubai, UAE", detail: "No incidents reported — Secure", color: "#22c55e", url: "#",
         }]);
-
         setEvents(withDubai.length > 1 ? withDubai : DEMO_MAP_EVENTS);
       } catch (_) {
         setEvents(DEMO_MAP_EVENTS);
       } finally {
+        clearTimeout(to);
         setLoading(false);
       }
     };
