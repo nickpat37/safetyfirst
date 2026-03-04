@@ -916,7 +916,7 @@ const useClaudeSummary = (news) => {
       return !financeOnlyRe.test(t);
     });
     const oneLine = (s) => (s.length > 120 ? s.slice(0, 117).replace(/\s+\S*$/, "") + "…" : s);
-    const instantBullets = fallbackArticles.slice(0, 8).map(a => ({ text: oneLine([a.title, a.summary].filter(Boolean).join(" ")), severity: a.severity, news: a }));
+    const instantBullets = fallbackArticles.slice(0, 4).map(a => ({ text: oneLine([a.title, a.summary].filter(Boolean).join(" ")), severity: a.severity, news: a }));
     setBullets(dedupeBullets(instantBullets));
     setLoading(true); // Spinner on Refresh button while AI runs
 
@@ -964,7 +964,7 @@ Summarize the war, conflict, and security situation in the Middle East region as
 1. INCLUDE ONLY: Military conflicts, missile/strike activity, attacks, military strategy announcements, troop movements, defense policy, evacuations, travel advisories, terrorism, civil unrest, regional security, political tensions. Focus on military status and political conflict—what affects civilian safety. NO finance, NO markets.
 2. EXCLUDE ALWAYS: Oil pricing, oil sector, oilmeals, finance, stock markets, gold/commodity prices, currency, investments, business sectors, agriculture/food prices, supply chains. INCLUDE: political moves about oil (sanctions, OPEC decisions, embargoes). If an article mentions "X sector cautious" or "markets/react" or business/economic impact—SKIP IT entirely.
 3. Each bullet = exactly ONE line. One short sentence only (~15–20 words max). Base on the article—do not invent. Wrap the key phrase in **double asterisks**.
-4. Output 5–7 bullets. One article per bullet. Single sentence per bullet. Do NOT repeat the same story—if two articles cover the same event, include only ONE bullet for it.
+4. Output 3–4 bullets. One article per bullet. Single sentence per bullet. Pick the most critical. Do NOT repeat the same story—if two articles cover the same event, include only ONE bullet for it.
 5. Return ONLY a raw JSON array. No markdown, no preamble.
 6. Write ALL summaries in English only. No other languages.
 
@@ -972,7 +972,7 @@ Summarize the war, conflict, and security situation in the Middle East region as
 - "text": string (ONE line, one sentence, ~15–20 words max, with **bold** key phrase)
 - "severity": "high" | "medium" | "low"
 - "articleIndex": 1-based index of the article (1–10)`,
-          messages: [{ role: "user", content: `Articles (numbered 1–10). Generate the safety briefing in English only. Each bullet = ONE line only (one short sentence, ~15–20 words max). EXCLUDE: oil pricing, gold, finance, commodities. INCLUDE: military, strategy, political conflict, diplomatic moves, sanctions (including oil sanctions). Do NOT include two bullets about the same news story. Write all output in English.\n\n${inputText}\n\nGenerate the JSON briefing now.` }],
+          messages: [{ role: "user", content: `Articles (numbered 1–10). Generate the safety briefing in English only. Output exactly 3–4 bullets (most critical only). Each bullet = ONE line only (one short sentence, ~15–20 words max). EXCLUDE: oil pricing, gold, finance, commodities. INCLUDE: military, strategy, political conflict, diplomatic moves, sanctions. Do NOT repeat the same story.\n\n${inputText}\n\nGenerate the JSON briefing now.` }],
         }),
       });
 
@@ -981,7 +981,7 @@ Summarize the war, conflict, and security situation in the Middle East region as
       if (thisRunId !== runIdRef.current) return;
       const raw = data.content?.[0]?.text || "[]";
       const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
-      const withNews = parsed.map(b => ({ ...b, news: toUse[Math.max(0, (b.articleIndex || 1) - 1)] }));
+      const withNews = parsed.slice(0, 4).map(b => ({ ...b, news: toUse[Math.max(0, (b.articleIndex || 1) - 1)] }));
       setBullets(dedupeBullets(withNews));
     } catch (err) {
       if (thisRunId === runIdRef.current) setError(err.message);
@@ -1159,7 +1159,7 @@ const filterBullets = (bullets, filter) => {
   return bullets;
 };
 
-const AISummaryPanel = ({ bullets, loading, error, lastUpdated, onRegenerate, bulletFilter, onClearFilter, hasNews = false, hasRealNews = false, isPlaceholder = false }) => {
+const AISummaryPanel = ({ bullets, loading, error, lastUpdated, onRegenerate, bulletFilter, onClearFilter, hasNews = false, hasRealNews = false, isPlaceholder = false, allNews = [] }) => {
   const filteredBullets = filterBullets(bullets, bulletFilter);
   const filterBadge = bulletFilter === "missile" ? { label: "🎯 Missile/strike", style: "bg-red-100 text-red-700 border-red-200" } : bulletFilter === "high" ? { label: "🔴 High-severity", style: "bg-orange-100 text-orange-700 border-orange-200" } : bulletFilter === "medium" ? { label: "🟡 Developing", style: "bg-amber-100 text-amber-700 border-amber-200" } : null;
   return (
@@ -1232,8 +1232,9 @@ const AISummaryPanel = ({ bullets, loading, error, lastUpdated, onRegenerate, bu
           ))}
         </ul>
       )}
-      {hasRealNews && filteredBullets.length > 0 && (() => {
-        const newsItems = [...new Map(filteredBullets.filter(b => b.news?.url).map(b => [b.news.url, b.news])).values()];
+      {hasRealNews && allNews.length > 0 && (() => {
+        const bulletUrls = new Set(filteredBullets.filter(b => b.news?.url).map(b => b.news.url));
+        const newsItems = allNews.filter(n => n.url && !bulletUrls.has(n.url)).slice(0, 12);
         if (newsItems.length === 0) return null;
         return (
           <div className="mt-4 pt-4 border-t border-blue-100/50">
@@ -1865,7 +1866,7 @@ export default function SafeDXB() {
             })()}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div ref={liveNewsRef} className="lg:col-span-2 space-y-5 min-w-0">
-                <AISummaryPanel bullets={bullets} loading={aiLoading} error={aiError} lastUpdated={lastUpdated} onRegenerate={regenerate} bulletFilter={liveNewsFilter} onClearFilter={() => setLiveNewsFilter(null)} hasNews={news.length > 0} hasRealNews={hasRealNews} isPlaceholder={isPlaceholder}/>
+                <AISummaryPanel bullets={bullets} loading={aiLoading} error={aiError} lastUpdated={lastUpdated} onRegenerate={regenerate} bulletFilter={liveNewsFilter} onClearFilter={() => setLiveNewsFilter(null)} hasNews={news.length > 0} hasRealNews={hasRealNews} isPlaceholder={isPlaceholder} allNews={news}/>
               </div>
               <div className="space-y-4">
                 <Card>
