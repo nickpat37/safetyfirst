@@ -570,16 +570,7 @@ const useLiveNews = () => {
   const tryGdeltCloudNews = async () => {
     const params = new URLSearchParams({ days: "1", limit: "15", category: "conflict_security" });
     try {
-      let res;
-      if (CONFIG.GDELT_API_KEY) {
-        res = await fetchWithTimeout(
-          `https://gdeltcloud.com/api/v1/media-events?${params}`,
-          { headers: { Authorization: `Bearer ${CONFIG.GDELT_API_KEY}` } },
-          10000
-        );
-      } else {
-        res = await fetchWithTimeout(`/api/gdelt?${params}`, {}, 10000);
-      }
+      const res = await fetchWithTimeout(`/api/gdelt?${params}`, {}, 10000);
       if (!res.ok) return [];
       const data = await res.json();
       const articles = data.articles || [];
@@ -790,13 +781,9 @@ const useGdeltMap = () => {
       const to = setTimeout(() => ctrl.abort(), 12000);
 
       const tryGdeltCloudMap = async () => {
-        if (!CONFIG.GDELT_API_KEY) return [];
         const params = new URLSearchParams({ days: "7", limit: "50", category: "conflict_security" });
         try {
-          const res = await fetch(
-            `https://gdeltcloud.com/api/v1/media-events?${params}`,
-            { headers: { Authorization: `Bearer ${CONFIG.GDELT_API_KEY}` }, signal: ctrl.signal }
-          );
+          const res = await fetch(`/api/gdelt?${params}`, { signal: ctrl.signal });
           if (!res.ok) return [];
           const data = await res.json();
           const articles = data.articles || [];
