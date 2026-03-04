@@ -1664,10 +1664,10 @@ export default function SafeDXB() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
         *{box-sizing:border-box}body{margin:0}
-        .ticker-wrap{overflow:hidden}
-        .ticker-inner{display:flex;animation:ticker 12s linear infinite;white-space:nowrap}
-        .ticker-inner.ticker-loading{animation:none}
-        @keyframes ticker{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+        .ticker-wrap{overflow:hidden;position:relative}
+        .ticker-inner{display:inline-flex;animation:ticker 30s linear infinite;white-space:nowrap;will-change:transform}
+        .ticker-inner.ticker-loading{animation:none;will-change:auto}
+        @keyframes ticker{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
         @keyframes spin{to{transform:rotate(360deg)}}
         .animate-spin{animation:spin 1s linear infinite}
         @keyframes pulse2{0%,100%{opacity:1}50%{opacity:.4}}
@@ -1699,11 +1699,13 @@ export default function SafeDXB() {
                 Loading latest news
               </span>
             ) : (
-              [...news.slice(0,10),...news.slice(0,10)].map((n,i) => (
-                <span key={i} className="text-xs text-white font-medium shrink-0 mr-14">
-                  {n.severity==="high"?"🔴":n.severity==="medium"?"🟡":"🟢"} {n.title}
-                </span>
-              ))
+              <>
+                {[...news.slice(0,10),...news.slice(0,10)].map((n,i) => (
+                  <span key={`ticker-${i}`} className="text-xs text-white font-medium shrink-0 mr-14">
+                    {n.severity==="high"?"🔴":n.severity==="medium"?"🟡":"🟢"} {n.title}
+                  </span>
+                ))}
+              </>
             )}
           </div>
         </div>
