@@ -1552,6 +1552,66 @@ const StrikeMap = ({ events, loading }) => {
 };
 
 // ─────────────────────────────────────────────────────────────
+//  News Ticker (JS-based seamless scroll — avoids CSS keyframe reset flash)
+// ─────────────────────────────────────────────────────────────
+const NewsTicker = ({ news, loading }) => {
+  const trackRef = useRef(null);
+  const copyRef = useRef(null);
+  const offsetRef = useRef(0);
+  const copyWidthRef = useRef(0);
+  const SPEED = 0.6;
+
+  useEffect(() => {
+    if (loading || !news?.length || !trackRef.current || !copyRef.current) return;
+
+    offsetRef.current = 0;
+    let raf = null;
+    const loop = () => {
+      if (copyWidthRef.current <= 0 && copyRef.current) copyWidthRef.current = copyRef.current.offsetWidth;
+      const cw = copyWidthRef.current;
+      if (cw > 0) {
+        offsetRef.current += SPEED;
+        if (offsetRef.current >= cw) offsetRef.current -= cw;
+        if (trackRef.current) trackRef.current.style.transform = `translate3d(-${offsetRef.current}px,0,0)`;
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [news, loading]);
+
+  if (loading || !news?.length) {
+    return (
+      <div className="ticker-inner ticker-loading gap-0 flex items-center">
+        <span className="inline-flex items-center gap-2 text-xs text-white font-medium shrink-0">
+          <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"/>Loading latest news
+        </span>
+      </div>
+    );
+  }
+
+  const items = news.slice(0, 10);
+  return (
+    <div ref={trackRef} className="ticker-inner gap-0 flex items-center" style={{ transform: "translateX(0)" }}>
+      <div ref={copyRef} className="flex shrink-0 items-center mr-14">
+        {items.map((n, i) => (
+          <span key={`a-${i}`} className="text-xs text-white font-medium shrink-0 mr-14">
+            {n.severity === "high" ? "🔴" : n.severity === "medium" ? "🟡" : "🟢"} {n.title}
+          </span>
+        ))}
+      </div>
+      <div className="flex shrink-0 items-center mr-14">
+        {items.map((n, i) => (
+          <span key={`b-${i}`} className="text-xs text-white font-medium shrink-0 mr-14">
+            {n.severity === "high" ? "🔴" : n.severity === "medium" ? "🟡" : "🟢"} {n.title}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────
 //  Guideline Accordion
 // ─────────────────────────────────────────────────────────────
 const GuidelineAccordion = ({ item }) => {
@@ -1665,9 +1725,8 @@ export default function SafeDXB() {
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
         *{box-sizing:border-box}body{margin:0}
         .ticker-wrap{overflow:hidden;position:relative}
-        .ticker-inner{display:inline-flex;animation:ticker 30s linear infinite;white-space:nowrap;will-change:transform}
-        .ticker-inner.ticker-loading{animation:none;will-change:auto}
-        @keyframes ticker{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
+        .ticker-inner{display:flex;white-space:nowrap}
+        .ticker-inner.ticker-loading{justify-content:center}
         @keyframes spin{to{transform:rotate(360deg)}}
         .animate-spin{animation:spin 1s linear infinite}
         @keyframes pulse2{0%,100%{opacity:1}50%{opacity:.4}}
@@ -1692,22 +1751,7 @@ export default function SafeDXB() {
           </a>
         </div>
         <div className="ticker-wrap bg-slate-900 text-white border-t border-slate-700 py-1.5">
-          <div className={cn("ticker-inner gap-0 flex items-center", (nLoading || !hasRealNews) && "ticker-loading justify-center")}>
-            {(nLoading || !hasRealNews) ? (
-              <span className="inline-flex items-center gap-2 text-xs text-white font-medium shrink-0">
-                <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"/>
-                Loading latest news
-              </span>
-            ) : (
-              <>
-                {[...news.slice(0,10),...news.slice(0,10)].map((n,i) => (
-                  <span key={`ticker-${i}`} className="text-xs text-white font-medium shrink-0 mr-14">
-                    {n.severity==="high"?"🔴":n.severity==="medium"?"🟡":"🟢"} {n.title}
-                  </span>
-                ))}
-              </>
-            )}
-          </div>
+          <NewsTicker news={hasRealNews ? news : []} loading={nLoading || !hasRealNews} />
         </div>
         <div className="bg-white border-b border-slate-200 z-40">
           <div className="max-w-screen-xl mx-auto pl-6 pr-0 py-2 relative">
