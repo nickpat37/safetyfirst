@@ -55,9 +55,11 @@ async function testGdeltCloud() {
 
 async function testNewsAPI() {
   if (!NEWS_KEY) return { ok: false, msg: "No VITE_NEWS_API_KEY in .env" };
-  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Dubai" });
+  const now = new Date();
+  const toDate = now.toLocaleDateString("en-CA", { timeZone: "Asia/Dubai" });
+  const fromDate = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000).toLocaleDateString("en-CA", { timeZone: "Asia/Dubai" });
   const q = encodeURIComponent('Iran OR "Middle East"');
-  const url = `https://newsapi.org/v2/everything?q=${q}&language=en&sortBy=publishedAt&pageSize=2&from=${today}&to=${today}&apiKey=${NEWS_KEY}`;
+  const url = `https://newsapi.org/v2/everything?q=${q}&language=en&sortBy=publishedAt&pageSize=10&from=${fromDate}&to=${toDate}&apiKey=${NEWS_KEY}`;
   try {
     const res = await fetch(url);
     const data = await res.json();

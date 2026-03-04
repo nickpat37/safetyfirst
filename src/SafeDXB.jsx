@@ -542,8 +542,10 @@ const useLiveNews = () => {
 
   const tryNewsApiProxy = async () => {
     if (!CONFIG.NEWS_API_KEY) return [];
-    const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Dubai" });
-    const params = new URLSearchParams({ q: NEWS_QUERY, from: today, to: today, pageSize: "25" });
+    const now = new Date();
+    const toDate = now.toLocaleDateString("en-CA", { timeZone: "Asia/Dubai" });
+    const fromDate = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000).toLocaleDateString("en-CA", { timeZone: "Asia/Dubai" });
+    const params = new URLSearchParams({ q: NEWS_QUERY, from: fromDate, to: toDate, pageSize: "25" });
     const res = await fetchWithTimeout(`/api/news?${params}`, {}, 10000);
     if (!res.ok) return [];
     const data = await res.json();
@@ -625,15 +627,6 @@ const useLiveNews = () => {
       setLastUpdated(new Date());
       setLoading(false);
       try {
-        const gdeltCloud = await tryGdeltCloudNews();
-        if (gdeltCloud.length > 0) {
-          const deduped = dedupeNews(gdeltCloud);
-          const diversified = diversifyNewsByRegion(deduped).map((a, i) => ({ ...a, id: i }));
-          setNews(diversified);
-          setIsPlaceholder(false);
-          setLastUpdated(new Date());
-          return;
-        }
         if (CONFIG.NEWS_API_KEY) {
           const proxy = await tryNewsApiProxy();
           if (proxy.length > 0) {
@@ -644,6 +637,15 @@ const useLiveNews = () => {
             setLastUpdated(new Date());
             return;
           }
+        }
+        const gdeltCloud = await tryGdeltCloudNews();
+        if (gdeltCloud.length > 0) {
+          const deduped = dedupeNews(gdeltCloud);
+          const diversified = diversifyNewsByRegion(deduped).map((a, i) => ({ ...a, id: i }));
+          setNews(diversified);
+          setIsPlaceholder(false);
+          setLastUpdated(new Date());
+          return;
         }
         const gdelt = await tryGdeltProjectNews();
         if (gdelt.length > 0) {
